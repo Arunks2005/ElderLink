@@ -1,290 +1,188 @@
-'use client';
-
-import { useState } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
-import { HeartPulse, ShieldCheck, UserCog, Users, Globe, ChevronDown } from 'lucide-react';
-
-type LangCode = 'en' | 'es' | 'hi' | 'fr' | 'de';
-
-const LANGUAGES: { code: LangCode; label: string }[] = [
-  { code: 'en', label: 'EN' },
-  { code: 'es', label: 'ES' },
-  { code: 'hi', label: 'HI' },
-  { code: 'fr', label: 'FR' },
-  { code: 'de', label: 'DE' },
-];
-
-const content: Record<LangCode, {
-  badge: string;
-  headline1: string;
-  headline2: string;
-  subtitle: string;
-  staffTitle: string;
-  staffDesc: string;
-  familyTitle: string;
-  familyDesc: string;
-  demo: string;
-  alertBadge: string;
-  alertTitle: string;
-  residentsLabel: string;
-  residentsCount: string;
-  residentsSub: string;
-  banner: string;
-  bannerBtn: string;
-  bannerBtnLoading: string;
-}> = {
-  en: {
-    badge: 'PHASE 1 · SPAIN',
-    headline1: 'Elder care,',
-    headline2: 'managed calmly.',
-    subtitle: 'ElderLink helps care homes in Spain log daily care, manage staff, and notify families in seconds.',
-    staffTitle: 'Staff / Admin',
-    staffDesc: 'Email and password',
-    familyTitle: 'Family',
-    familyDesc: 'Magic link, no password',
-    demo: 'Demo: admin@elderlink.es / admin123 · maria@elderlink.es / staff123',
-    alertBadge: '2 TAPS',
-    alertTitle: 'Emergency alert',
-    residentsLabel: 'ACTIVE RESIDENTS',
-    residentsCount: '4',
-    residentsSub: 'Demo loaded',
-    banner: 'Frontend preview only. Please wake servers to enable backend functionality.',
-    bannerBtn: 'Wake up servers',
-    bannerBtnLoading: 'Waking...',
-  },
-  es: {
-    badge: 'FASE 1 · ESPAÑA',
-    headline1: 'Cuidado mayor,',
-    headline2: 'gestionado con calma.',
-    subtitle: 'ElderLink ayuda a residencias de mayores en España a registrar el cuidado diario, gestionar al personal y notificar a las familias en segundos.',
-    staffTitle: 'Personal / Administrador',
-    staffDesc: 'Correo y contraseña',
-    familyTitle: 'Familia',
-    familyDesc: 'Enlace mágico, sin contraseña',
-    demo: 'Demo: admin@elderlink.es / admin123 · maria@elderlink.es / staff123',
-    alertBadge: '2 TOQUES',
-    alertTitle: 'Alerta de emergencia',
-    residentsLabel: 'RESIDENTES ACTIVOS',
-    residentsCount: '4',
-    residentsSub: 'Demo cargado',
-    banner: 'Solo vista previa del frontend. Activa los servidores para habilitar la funcionalidad del backend.',
-    bannerBtn: 'Activar servidores',
-    bannerBtnLoading: 'Activando...',
-  },
-  hi: {
-    badge: 'चरण 1 · स्पेन',
-    headline1: 'बुज़ुर्गों की देखभाल,',
-    headline2: 'शांति से प्रबंधित।',
-    subtitle: 'एल्डरलिंक स्पेन के केयर होम्स को दैनिक देखभाल दर्ज करने, स्टाफ़ प्रबंधित करने और परिवारों को सेकंडों में सूचित करने में मदद करता है।',
-    staffTitle: 'स्टाफ़ / एडमिन',
-    staffDesc: 'ईमेल और पासवर्ड',
-    familyTitle: 'परिवार',
-    familyDesc: 'मैजिक लिंक, बिना पासवर्ड',
-    demo: 'डेमो: admin@elderlink.es / admin123 · maria@elderlink.es / staff123',
-    alertBadge: '2 टैप',
-    alertTitle: 'आपातकालीन अलर्ट',
-    residentsLabel: 'सक्रिय निवासी',
-    residentsCount: '4',
-    residentsSub: 'डेमो लोड हुआ',
-    banner: 'केवल फ्रंटएंड पूर्वावलोकन। बैकएंड कार्यक्षमता सक्षम करने के लिए सर्वर जगाएं।',
-    bannerBtn: 'सर्वर जगाएं',
-    bannerBtnLoading: 'जगा रहे हैं...',
-  },
-  fr: {
-    badge: 'PHASE 1 · ESPAGNE',
-    headline1: "Le soin des aînés,",
-    headline2: 'géré en toute sérénité.',
-    subtitle: 'ElderLink aide les maisons de retraite en Espagne à enregistrer les soins quotidiens, gérer le personnel et prévenir les familles en quelques secondes.',
-    staffTitle: 'Personnel / Admin',
-    staffDesc: 'E-mail et mot de passe',
-    familyTitle: 'Famille',
-    familyDesc: 'Lien magique, sans mot de passe',
-    demo: 'Démo : admin@elderlink.es / admin123 · maria@elderlink.es / staff123',
-    alertBadge: '2 TOUCHES',
-    alertTitle: "Alerte d'urgence",
-    residentsLabel: 'RÉSIDENTS ACTIFS',
-    residentsCount: '4',
-    residentsSub: 'Démo chargée',
-    banner: 'Aperçu du frontend uniquement. Réveillez les serveurs pour activer le backend.',
-    bannerBtn: 'Réveiller les serveurs',
-    bannerBtnLoading: 'Réveil...',
-  },
-  de: {
-    badge: 'PHASE 1 · SPANIEN',
-    headline1: 'Seniorenpflege,',
-    headline2: 'ruhig verwaltet.',
-    subtitle: 'ElderLink hilft Pflegeheimen in Spanien, die tägliche Pflege zu dokumentieren, das Personal zu verwalten und Familien in Sekunden zu benachrichtigen.',
-    staffTitle: 'Personal / Admin',
-    staffDesc: 'E-Mail und Passwort',
-    familyTitle: 'Familie',
-    familyDesc: 'Magic Link, ohne Passwort',
-    demo: 'Demo: admin@elderlink.es / admin123 · maria@elderlink.es / staff123',
-    alertBadge: '2 TIPPS',
-    alertTitle: 'Notfallalarm',
-    residentsLabel: 'AKTIVE BEWOHNER',
-    residentsCount: '4',
-    residentsSub: 'Demo geladen',
-    banner: 'Nur Frontend-Vorschau. Bitte Server aufwecken, um Backend-Funktionen zu aktivieren.',
-    bannerBtn: 'Server aufwecken',
-    bannerBtnLoading: 'Wecke auf...',
-  },
-};
+import Link from 'next/link';
+import { HeartPulse, UserCog, Users, ClipboardList, Bell, ShieldCheck, Radio } from 'lucide-react';
 
 export default function HomePage() {
-  const [lang, setLang] = useState<LangCode>('en');
-  const [langMenuOpen, setLangMenuOpen] = useState(false);
-  const [waking, setWaking] = useState(false);
-  const [awake, setAwake] = useState(false);
-
-  const t = content[lang];
-
-  async function handleWakeServers() {
-    setWaking(true);
-    try {
-      // Points at your own health-check route once you add one, e.g. /api/health.
-      // Safe to leave as-is for now — it just won't find a route yet.
-      await fetch('/api/health').catch(() => null);
-    } finally {
-      setTimeout(() => {
-        setWaking(false);
-        setAwake(true);
-      }, 1200);
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-[#F8F6F1] text-[#1C2541]">
-      {/* Header */}
-      <header className="flex items-center justify-between px-8 md:px-16 py-6">
+    <div className="min-h-screen bg-[#FAFAF8] text-[#1F2937]">
+      {/* Nav */}
+      <header className="flex items-center justify-between px-8 md:px-16 py-6 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <HeartPulse className="w-6 h-6 text-[#DE7860]" />
+          <HeartPulse className="w-6 h-6 text-[#4F9C8B]" />
           <span className="text-xl font-bold tracking-tight">ElderLink</span>
         </div>
-
-        <div className="relative">
-          <button
-            onClick={() => setLangMenuOpen((o) => !o)}
-            className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-4 py-2 text-sm font-medium shadow-sm hover:shadow transition"
+        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-500">
+          <a href="#roles" className="hover:text-[#1F2937] transition">Roles</a>
+          <a href="#features" className="hover:text-[#1F2937] transition">Features</a>
+        </nav>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/login"
+            className="text-sm font-semibold text-[#1F2937] hover:text-[#4F9C8B] transition"
           >
-            <Globe className="w-4 h-4" />
-            {LANGUAGES.find((l) => l.code === lang)?.label}
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
-
-          {langMenuOpen && (
-            <div className="absolute right-0 mt-2 w-32 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20">
-              {LANGUAGES.map((l) => (
-                <button
-                  key={l.code}
-                  onClick={() => {
-                    setLang(l.code);
-                    setLangMenuOpen(false);
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
-                    l.code === lang ? 'font-semibold text-[#DE7860]' : ''
-                  }`}
-                >
-                  {l.label}
-                </button>
-              ))}
-            </div>
-          )}
+            Sign in
+          </Link>
+          <Link
+            href="/signup"
+            className="bg-[#4F9C8B] text-white text-sm font-semibold px-5 py-2.5 rounded-full hover:bg-[#438a7a] transition"
+          >
+            Sign up
+          </Link>
         </div>
       </header>
 
       {/* Hero */}
-      <main className="px-8 md:px-16 pb-10 grid md:grid-cols-2 gap-12 items-center max-w-7xl mx-auto">
-        {/* Left column */}
+      <section className="px-8 md:px-16 pt-10 pb-20 max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
         <div>
-          <div className="inline-flex items-center gap-1.5 bg-[#FBEAE3] text-[#C1583B] text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
+          <div className="inline-flex items-center gap-1.5 bg-[#EAF4F1] text-[#357366] text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
             <ShieldCheck className="w-3.5 h-3.5" />
-            {t.badge}
+            PHASE 1 · SPAIN
           </div>
 
-          <h1 className="text-5xl md:text-6xl font-extrabold leading-[1.05] mb-6">
-            {t.headline1}
-            <br />
-            <span className="text-[#DE7860]">{t.headline2}</span>
+          <h1 className="text-4xl md:text-5xl font-extrabold leading-[1.1] mb-6">
+            Care home management,{' '}
+            <span className="text-[#4F9C8B]">without the chaos.</span>
           </h1>
 
-          <p className="text-gray-600 text-lg leading-relaxed mb-8 max-w-md">
-            {t.subtitle}
+          <p className="text-gray-500 text-lg leading-relaxed mb-8 max-w-md">
+            ElderLink helps care homes log daily care, manage staff, and notify
+            families the moment something needs attention — all in one place.
           </p>
 
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="flex flex-wrap gap-4 mb-3">
             <Link
               href="/login"
-              className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition text-left"
+              className="bg-[#4F9C8B] text-white font-semibold px-6 py-3 rounded-full hover:bg-[#438a7a] transition"
             >
-              <div className="w-9 h-9 rounded-lg bg-[#FBEAE3] flex items-center justify-center mb-3">
-                <UserCog className="w-4.5 h-4.5 text-[#C1583B]" />
-              </div>
-              <p className="font-semibold text-sm leading-tight mb-1">{t.staffTitle}</p>
-              <p className="text-xs text-gray-500">{t.staffDesc}</p>
+              Staff / Admin sign in
             </Link>
-
             <Link
               href="/login"
-              className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition text-left"
+              className="bg-white border border-gray-200 font-semibold px-6 py-3 rounded-full hover:border-gray-300 transition"
             >
-              <div className="w-9 h-9 rounded-lg bg-[#E8EFE7] flex items-center justify-center mb-3">
-                <Users className="w-4.5 h-4.5 text-[#5B7A5A]" />
-              </div>
-              <p className="font-semibold text-sm leading-tight mb-1">{t.familyTitle}</p>
-              <p className="text-xs text-gray-500">{t.familyDesc}</p>
+              Family portal
             </Link>
           </div>
 
-          <p className="text-xs text-gray-400">{t.demo}</p>
+          <p className="text-sm text-gray-500">
+            New here?{' '}
+            <Link href="/signup" className="font-semibold text-[#4F9C8B] hover:underline">
+              Create an account
+            </Link>
+          </p>
         </div>
 
-        {/* Right column — hero image */}
         <div className="relative">
-          <div className="relative rounded-3xl overflow-hidden shadow-xl aspect-[4/5]">
+          <div className="relative rounded-3xl overflow-hidden shadow-md aspect-[4/5]">
             <Image
-              src="/images/hero-villa.jpg"
-              alt="Care home exterior"
+              src="https://picsum.photos/seed/elderlink/900/1125"
+              alt="Care home"
               fill
               className="object-cover"
               priority
             />
           </div>
-
-          {/* Floating alert badge */}
-          <div className="absolute top-6 right-6 bg-[#D8654F] text-white rounded-2xl px-5 py-4 shadow-lg max-w-[180px]">
-            <p className="text-[10px] font-semibold tracking-wide opacity-90 mb-1">{t.alertBadge}</p>
-            <p className="text-sm font-bold leading-tight">{t.alertTitle}</p>
-          </div>
-
-          {/* Floating residents card */}
-          <div className="absolute -bottom-6 left-6 bg-white rounded-2xl px-5 py-4 shadow-lg">
-            <p className="text-[10px] font-semibold tracking-wide text-gray-500 mb-1">
-              {t.residentsLabel}
+          <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl px-5 py-4 shadow-lg border border-gray-100">
+            <p className="text-[10px] font-semibold tracking-wide text-gray-400 mb-1">
+              ALERT RESPONSE
             </p>
-            <p className="text-3xl font-extrabold leading-none mb-1">{t.residentsCount}</p>
-            <p className="text-xs text-gray-400">{t.residentsSub}</p>
+            <p className="text-2xl font-extrabold leading-none">&lt; 3 sec</p>
           </div>
         </div>
-      </main>
+      </section>
 
-      {/* Bottom banner */}
-      <div className="px-8 md:px-16 pb-8 max-w-7xl mx-auto">
-        <div className="bg-[#1C2541] text-white rounded-2xl px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-          <p className="text-sm">{t.banner}</p>
-          <button
-            onClick={handleWakeServers}
-            disabled={waking}
-            className={`text-sm font-semibold px-4 py-2 rounded-full transition ${
-              awake
-                ? 'bg-emerald-500 text-white'
-                : 'bg-emerald-400 text-[#1C2541] hover:bg-emerald-300'
-            } disabled:opacity-60`}
-          >
-            {waking ? t.bannerBtnLoading : awake ? '✓' : t.bannerBtn}
-          </button>
+      {/* Roles */}
+      <section id="roles" className="px-8 md:px-16 py-20 bg-white border-y border-gray-100">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold mb-2">Built around three roles</h2>
+          <p className="text-gray-500 mb-12 max-w-xl">
+            Each person sees only what's relevant to them the moment they sign in.
+          </p>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="bg-[#FAFAF8] rounded-2xl p-6 border border-gray-100">
+              <div className="w-10 h-10 rounded-xl bg-[#EAF4F1] flex items-center justify-center mb-4">
+                <UserCog className="w-5 h-5 text-[#357366]" />
+              </div>
+              <h3 className="font-semibold mb-2">Admin</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Manages resident profiles, staff accounts, and family contacts.
+                Full visibility across the home.
+              </p>
+            </div>
+
+            <div className="bg-[#FAFAF8] rounded-2xl p-6 border border-gray-100">
+              <div className="w-10 h-10 rounded-xl bg-[#F3EEE6] flex items-center justify-center mb-4">
+                <ClipboardList className="w-5 h-5 text-[#8A6D3B]" />
+              </div>
+              <h3 className="font-semibold mb-2">Staff</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Logs daily care — meals, mood, mobility, medication — in
+                seconds from any device on shift.
+              </p>
+            </div>
+
+            <div className="bg-[#FAFAF8] rounded-2xl p-6 border border-gray-100">
+              <div className="w-10 h-10 rounded-xl bg-[#EEF2FA] flex items-center justify-center mb-4">
+                <Users className="w-5 h-5 text-[#3B5C8A]" />
+              </div>
+              <h3 className="font-semibold mb-2">Family</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Checks in on their relative anytime — care updates and alerts,
+                without needing to call the home.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="px-8 md:px-16 py-20">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold mb-12">What ElderLink handles</h2>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="flex gap-4">
+              <Radio className="w-5 h-5 text-[#4F9C8B] shrink-0 mt-1" />
+              <div>
+                <h3 className="font-semibold mb-1">Real-time care logs</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Family and admin dashboards update live the moment staff log
+                  a new entry — no refresh needed.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <Bell className="w-5 h-5 text-[#4F9C8B] shrink-0 mt-1" />
+              <div>
+                <h3 className="font-semibold mb-1">Emergency alerts</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  One tap notifies the primary family contact by SMS and every
+                  linked contact by email, dispatched within seconds.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <ShieldCheck className="w-5 h-5 text-[#4F9C8B] shrink-0 mt-1" />
+              <div>
+                <h3 className="font-semibold mb-1">Role-based access</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Row-level security means each role only ever sees the data
+                  they're entitled to — nothing more.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="px-8 md:px-16 py-8 border-t border-gray-100 flex items-center justify-between text-sm text-gray-400 max-w-7xl mx-auto">
+        <span>© 2026 ElderLink · Built for Sustainova Phase 1</span>
+        <span>SDG 3 · 10 · 11</span>
+      </footer>
     </div>
   );
 }
