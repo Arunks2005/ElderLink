@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, HeartHandshake } from 'lucide-react';
+import { Eye, EyeOff, HeartHandshake, ShieldCheck, ClipboardList } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function getErrorMessage(err: unknown): string {
@@ -16,6 +16,8 @@ function getErrorMessage(err: unknown): string {
   }
 }
 
+type Role = 'admin' | 'staff';
+
 export default function SignupPage() {
   const router = useRouter();
 
@@ -25,6 +27,7 @@ export default function SignupPage() {
     phone: '',
     password: '',
   });
+  const [role, setRole] = useState<Role>('staff');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -53,6 +56,7 @@ export default function SignupPage() {
           data: {
             full_name: formData.fullName,
             phone_number: formData.phone,
+            role,
           },
         },
       });
@@ -88,6 +92,18 @@ export default function SignupPage() {
     }
   }
 
+  const fields: {
+    key: keyof typeof formData;
+    label: string;
+    type: string;
+    placeholder: string;
+    required?: boolean;
+  }[] = [
+    { key: 'fullName', label: 'Full name', type: 'text', placeholder: 'Jane Doe', required: true },
+    { key: 'email', label: 'Email', type: 'email', placeholder: 'jane@example.com', required: true },
+    { key: 'phone', label: 'Phone number', type: 'tel', placeholder: '+34 600 000 000' },
+  ];
+
   return (
     <div className="min-h-screen bg-[#3B4A54] flex items-center justify-center p-6">
       <div
@@ -95,6 +111,7 @@ export default function SignupPage() {
           mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
         }`}
       >
+        {/* Left — brand panel */}
         <div className="hidden md:flex flex-col justify-between bg-[#2F3B43] p-10 relative overflow-hidden">
           <div
             className={`transition-all duration-700 delay-100 ease-out ${
@@ -130,60 +147,77 @@ export default function SignupPage() {
             </p>
           </div>
 
-          <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-[#E8934A]/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-[#E8934A]/10 rounded-full blur-3xl transition-transform duration-1000" />
         </div>
 
+        {/* Right — form */}
         <div className="bg-[#46565F] p-8 md:p-10">
           <h1 className="font-serif text-2xl text-[#F5F3EF] mb-1">
             Create your account
           </h1>
-          <p className="text-sm text-[#AEBAC2] mb-8">
+          <p className="text-sm text-[#AEBAC2] mb-6">
             Join ElderLink to stay connected with care updates.
           </p>
 
+          {/* Role toggle — sliding segmented control */}
+          <div className="relative bg-[#3B4A54] rounded-full p-1 flex mb-7">
+            <div
+              className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-[#E8934A] transition-transform duration-300 ease-out"
+              style={{
+                transform: role === 'staff' ? 'translateX(0%)' : 'translateX(calc(100% + 8px))',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setRole('staff')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-colors duration-300 ${
+                role === 'staff' ? 'text-[#2B2B2B]' : 'text-[#C7D0D6]'
+              }`}
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              Staff
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole('admin')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-colors duration-300 ${
+                role === 'admin' ? 'text-[#2B2B2B]' : 'text-[#C7D0D6]'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Admin
+            </button>
+          </div>
+
           <form onSubmit={handleSignup} className="space-y-5">
-            <div>
-              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
-                Full name
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.fullName}
-                onChange={(e) => handleChange('fullName', e.target.value)}
-                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
-                placeholder="Jane Doe"
-              />
-            </div>
+            {fields.map((field, i) => (
+              <div
+                key={field.key}
+                className={`transition-all duration-500 ease-out ${
+                  mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
+                }`}
+                style={{ transitionDelay: mounted ? `${150 + i * 80}ms` : '0ms' }}
+              >
+                <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
+                  {field.label}
+                </label>
+                <input
+                  type={field.type}
+                  required={field.required}
+                  value={formData[field.key]}
+                  onChange={(e) => handleChange(field.key, e.target.value)}
+                  className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
+                  placeholder={field.placeholder}
+                />
+              </div>
+            ))}
 
-            <div>
-              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => handleChange('email', e.target.value)}
-                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
-                placeholder="jane@example.com"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
-                Phone number
-              </label>
-              <input
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => handleChange('phone', e.target.value)}
-                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
-                placeholder="+34 600 000 000"
-              />
-            </div>
-
-            <div>
+            <div
+              className={`transition-all duration-500 ease-out ${
+                mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
+              }`}
+              style={{ transitionDelay: mounted ? '390ms' : '0ms' }}
+            >
               <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
                 Password
               </label>
@@ -220,7 +254,7 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
-              {loading ? 'Creating account…' : 'Sign up'}
+              {loading ? 'Creating account…' : `Sign up as ${role === 'admin' ? 'Admin' : 'Staff'}`}
             </button>
 
             <button
