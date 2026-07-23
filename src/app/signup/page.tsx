@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, HeartHandshake, ShieldCheck, ClipboardList } from 'lucide-react';
+import { Eye, EyeOff, HeartHandshake } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function getErrorMessage(err: unknown): string {
@@ -16,8 +16,6 @@ function getErrorMessage(err: unknown): string {
   }
 }
 
-type Role = 'admin' | 'staff';
-
 export default function SignupPage() {
   const router = useRouter();
 
@@ -27,7 +25,6 @@ export default function SignupPage() {
     phone: '',
     password: '',
   });
-  const [role, setRole] = useState<Role>('staff');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +53,6 @@ export default function SignupPage() {
           data: {
             full_name: formData.fullName,
             phone_number: formData.phone,
-            role,
           },
         },
       });
@@ -155,39 +151,9 @@ export default function SignupPage() {
           <h1 className="font-serif text-2xl text-[#F5F3EF] mb-1">
             Create your account
           </h1>
-          <p className="text-sm text-[#AEBAC2] mb-6">
+          <p className="text-sm text-[#AEBAC2] mb-8">
             Join ElderLink to stay connected with care updates.
           </p>
-
-          {/* Role toggle — sliding segmented control */}
-          <div className="relative bg-[#3B4A54] rounded-full p-1 flex mb-7">
-            <div
-              className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-[#E8934A] transition-transform duration-300 ease-out"
-              style={{
-                transform: role === 'staff' ? 'translateX(0%)' : 'translateX(calc(100% + 8px))',
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setRole('staff')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-colors duration-300 ${
-                role === 'staff' ? 'text-[#2B2B2B]' : 'text-[#C7D0D6]'
-              }`}
-            >
-              <ClipboardList className="w-3.5 h-3.5" />
-              Staff
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('admin')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-colors duration-300 ${
-                role === 'admin' ? 'text-[#2B2B2B]' : 'text-[#C7D0D6]'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Admin
-            </button>
-          </div>
 
           <form onSubmit={handleSignup} className="space-y-5">
             {fields.map((field, i) => (
@@ -254,7 +220,7 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
-              {loading ? 'Creating account…' : `Sign up as ${role === 'admin' ? 'Admin' : 'Staff'}`}
+              {loading ? 'Creating account…' : 'Sign up'}
             </button>
 
             <button

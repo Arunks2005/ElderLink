@@ -43,9 +43,10 @@ export default function LoginPage() {
         return;
       }
 
+      // Just confirm a matching profile row exists — single role (admin) for now
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('id')
         .eq('id', signInData.user.id)
         .single();
 
@@ -56,15 +57,7 @@ export default function LoginPage() {
         return;
       }
 
-      if (profile.role === 'admin') {
-        router.push('/admin/dashboard');
-      } else if (profile.role === 'staff') {
-        router.push('/staff/dashboard');
-      } else {
-        setError('This account role is not supported for sign in yet.');
-        await supabase.auth.signOut();
-        setLoading(false);
-      }
+      router.push('/admin/dashboard');
     } catch (err) {
       console.error('Login failed:', err);
       setError(getErrorMessage(err));
