@@ -34,11 +34,6 @@ export default function HomePage() {
       {/* Hero */}
       <section className="px-8 md:px-16 pt-10 pb-20 max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
         <div>
-          <div className="inline-flex items-center gap-1.5 bg-[#EAF4F1] text-[#357366] text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            PHASE 1 · SPAIN
-          </div>
-
           <h1 className="text-4xl md:text-5xl font-extrabold leading-[1.1] mb-6">
             Care home management,{' '}
             <span className="text-[#4F9C8B]">without the chaos.</span>
@@ -56,12 +51,6 @@ export default function HomePage() {
             >
               Staff / Admin sign in
             </Link>
-            <Link
-              href="/login"
-              className="bg-white border border-gray-200 font-semibold px-6 py-3 rounded-full hover:border-gray-300 transition"
-            >
-              Family portal
-            </Link>
           </div>
 
           <p className="text-sm text-gray-500">
@@ -75,7 +64,7 @@ export default function HomePage() {
         <div className="relative">
           <div className="relative rounded-3xl overflow-hidden shadow-md aspect-[4/5]">
             <Image
-              src="https://picsum.photos/seed/elderlink/900/1125"
+              src="https://picsum.photos/seed/carehome-warm/900/1125"
               alt="Care home"
               fill
               className="object-cover"
@@ -122,11 +111,13 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="bg-[#FAFAF8] rounded-2xl p-6 border border-gray-100">
+            <div className="bg-[#FAFAF8] rounded-2xl p-6 border border-gray-100 opacity-60">
               <div className="w-10 h-10 rounded-xl bg-[#EEF2FA] flex items-center justify-center mb-4">
                 <Users className="w-5 h-5 text-[#3B5C8A]" />
               </div>
-              <h3 className="font-semibold mb-2">Family</h3>
+              <h3 className="font-semibold mb-2">
+                Family <span className="text-xs font-normal text-gray-400">(coming soon)</span>
+              </h3>
               <p className="text-sm text-gray-500 leading-relaxed">
                 Checks in on their relative anytime — care updates and alerts,
                 without needing to call the home.
@@ -179,9 +170,8 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="px-8 md:px-16 py-8 border-t border-gray-100 flex items-center justify-between text-sm text-gray-400 max-w-7xl mx-auto">
-        <span>© 2026 ElderLink · Built for Sustainova Phase 1</span>
-        <span>SDG 3 · 10 · 11</span>
+      <footer className="px-8 md:px-16 py-8 border-t border-gray-100 text-sm text-gray-400 max-w-7xl mx-auto">
+        <span>© 2026 ElderLink</span>
       </footer>
     </div>
   );

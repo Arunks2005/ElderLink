@@ -1,15 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, HeartHandshake } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-type FieldName = 'fullName' | 'email' | 'phone' | 'password' | null;
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    const str = JSON.stringify(err);
+    return str && str !== '{}' ? str : 'Something went wrong. Please try again.';
+  } catch {
+    return 'Something went wrong. Please try again.';
+  }
+}
 
 export default function SignupPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -17,24 +25,14 @@ export default function SignupPage() {
     phone: '',
     password: '',
   });
-  const [focusField, setFocusField] = useState<FieldName>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
 
-  // How far the eyes shift based on which field is active
-  const eyeOffset: Record<string, number> = {
-    fullName: -6,
-    email: 0,
-    phone: 6,
-    password: 0,
-  };
-  const currentOffset = focusField ? eyeOffset[focusField] ?? 0 : 0;
-
-  const isPasswordFocused = focusField === 'password';
-  const isTypingSomething =
-    formData.fullName.length > 0 ||
-    (formData.email.length > 3 && formData.email.includes('@'));
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   function handleChange(field: keyof typeof formData, value: string) {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -45,187 +43,190 @@ export default function SignupPage() {
     setError('');
     setLoading(true);
 
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          full_name: formData.fullName,
-          phone_number: formData.phone,
-          role: 'family', // default role for public signup
+    try {
+      const supabase = createClient();
+
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.fullName,
+            phone_number: formData.phone,
+          },
         },
-      },
-    });
+      });
 
-    setLoading(false);
+      if (signUpError) {
+        setError(signUpError.message || getErrorMessage(signUpError));
+        setLoading(false);
+        return;
+      }
 
-    if (signUpError) {
-      setError(signUpError.message);
-      return;
+      router.push('/login');
+    } catch (err) {
+      console.error('Signup failed:', err);
+      setError(getErrorMessage(err));
+      setLoading(false);
     }
-
-    router.push('/login');
   }
 
   async function handleGoogleSignup() {
     setError('');
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    if (oauthError) setError(oauthError.message);
+    try {
+      const supabase = createClient();
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (oauthError) setError(oauthError.message || getErrorMessage(oauthError));
+    } catch (err) {
+      console.error('Google signup failed:', err);
+      setError(getErrorMessage(err));
+    }
   }
 
   return (
-    <div className="min-h-screen bg-[#EDEBE8] flex items-center justify-center p-6">
-      <div className="bg-white rounded-3xl shadow-xl overflow-hidden flex w-full max-w-4xl">
-        {/* Left — reactive character panel */}
-        <div className="hidden md:flex flex-1 bg-[#F0EEEA] relative items-center justify-center overflow-hidden">
-          <div className="relative w-48 h-64">
-            {/* Body */}
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-48 bg-[#2B2B2B] rounded-[28px]" />
-
-            {/* Eyes */}
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 flex gap-6 z-10">
-              {[0, 1].map((i) => (
-                <div
-                  key={i}
-                  className="w-6 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden"
-                >
-                  <div
-                    className="w-3 h-3 bg-[#2B2B2B] rounded-full transition-transform duration-300 ease-out"
-                    style={{ transform: `translateX(${currentOffset}px)` }}
-                  />
-                </div>
-              ))}
+    <div className="min-h-screen bg-[#3B4A54] flex items-center justify-center p-6">
+      <div
+        className={`w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-3xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-700 ease-out ${
+          mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+        }`}
+      >
+        <div className="hidden md:flex flex-col justify-between bg-[#2F3B43] p-10 relative overflow-hidden">
+          <div
+            className={`transition-all duration-700 delay-100 ease-out ${
+              mounted ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'
+            }`}
+          >
+            <div className="w-11 h-11 rounded-full bg-[#E8934A] flex items-center justify-center transition-transform duration-500 hover:scale-110 hover:rotate-6">
+              <HeartHandshake className="w-5 h-5 text-[#2F3B43]" strokeWidth={2.5} />
             </div>
-
-            {/* Mouth — flat vs smile */}
-            <div
-              className={`absolute top-28 left-1/2 -translate-x-1/2 bg-[#2B2B2B] transition-all duration-300 ease-out ${
-                isTypingSomething
-                  ? 'w-8 h-4 rounded-b-full'
-                  : 'w-6 h-[3px] rounded-full'
-              }`}
-            />
-
-            {/* Hands covering eyes when password is focused */}
-            <div
-              className="absolute top-14 left-1/2 -translate-x-1/2 flex gap-1 z-20 transition-transform duration-300 ease-out"
-              style={{
-                transform: isPasswordFocused
-                  ? showPassword
-                    ? 'translateY(4px)' // peeking through fingers
-                    : 'translateY(-2px)' // fully covering
-                  : 'translateY(-60px)', // hidden above, out of the way
-              }}
-            >
-              <div className="w-8 h-8 bg-[#F4B942] rounded-full -rotate-12" />
-              <div className="w-8 h-8 bg-[#F4B942] rounded-full rotate-12" />
-            </div>
-
-            {/* Background accent blobs, subtle parallax with eyes */}
-            <div
-              className="absolute -left-6 top-4 w-16 h-32 bg-[#6C5CE7] rounded-2xl -z-10 transition-transform duration-500"
-              style={{ transform: `translateX(${currentOffset * 0.3}px)` }}
-            />
-            <div
-              className="absolute -right-4 bottom-0 w-20 h-20 bg-[#E8734A] rounded-t-full -z-10 transition-transform duration-500"
-              style={{ transform: `translateX(${currentOffset * -0.3}px)` }}
-            />
+            <h2 className="font-serif text-3xl text-[#F5F3EF] mt-8 leading-tight">
+              Care that stays
+              <br />
+              close, always.
+            </h2>
+            <p className="text-[#B9C4CB] text-sm mt-4 leading-relaxed max-w-xs">
+              ElderLink keeps families and caregivers on the same page, with
+              real-time updates on the people who matter most.
+            </p>
           </div>
+
+          <div
+            className={`border-t border-white/10 pt-6 transition-all duration-700 delay-300 ease-out ${
+              mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+            }`}
+          >
+            <p className="text-[#F5F3EF] text-sm leading-relaxed italic">
+              &ldquo;I finally feel like I know what&rsquo;s happening with
+              Mom&rsquo;s care, every day, not just at the doctor&rsquo;s
+              visit.&rdquo;
+            </p>
+            <p className="text-[#8FA0A9] text-xs mt-3 uppercase tracking-wider">
+              Family member, ElderLink user
+            </p>
+          </div>
+
+          <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-[#E8934A]/10 rounded-full blur-3xl" />
         </div>
 
-        {/* Right — form */}
-        <div className="flex-1 p-10">
-          <h1 className="text-2xl font-bold mb-1">Create your account</h1>
-          <p className="text-sm text-gray-500 mb-8">
+        <div className="bg-[#46565F] p-8 md:p-10">
+          <h1 className="font-serif text-2xl text-[#F5F3EF] mb-1">
+            Create your account
+          </h1>
+          <p className="text-sm text-[#AEBAC2] mb-8">
             Join ElderLink to stay connected with care updates.
           </p>
 
           <form onSubmit={handleSignup} className="space-y-5">
             <div>
-              <label className="text-xs font-semibold text-gray-500">Full name</label>
+              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
+                Full name
+              </label>
               <input
                 type="text"
                 required
                 value={formData.fullName}
                 onChange={(e) => handleChange('fullName', e.target.value)}
-                onFocus={() => setFocusField('fullName')}
-                onBlur={() => setFocusField(null)}
-                className="w-full border-b border-gray-300 focus:border-[#2B2B2B] outline-none py-2 text-sm transition-colors"
+                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
                 placeholder="Jane Doe"
               />
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-gray-500">Email</label>
+              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
+                Email
+              </label>
               <input
                 type="email"
                 required
                 value={formData.email}
                 onChange={(e) => handleChange('email', e.target.value)}
-                onFocus={() => setFocusField('email')}
-                onBlur={() => setFocusField(null)}
-                className="w-full border-b border-gray-300 focus:border-[#2B2B2B] outline-none py-2 text-sm transition-colors"
+                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
                 placeholder="jane@example.com"
               />
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-gray-500">Phone number</label>
+              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
+                Phone number
+              </label>
               <input
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => handleChange('phone', e.target.value)}
-                onFocus={() => setFocusField('phone')}
-                onBlur={() => setFocusField(null)}
-                className="w-full border-b border-gray-300 focus:border-[#2B2B2B] outline-none py-2 text-sm transition-colors"
+                className="mt-1.5 w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 px-3.5 text-sm transition-all duration-200"
                 placeholder="+34 600 000 000"
               />
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-gray-500">Password</label>
-              <div className="relative">
+              <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide">
+                Password
+              </label>
+              <div className="relative mt-1.5">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   minLength={6}
                   value={formData.password}
                   onChange={(e) => handleChange('password', e.target.value)}
-                  onFocus={() => setFocusField('password')}
-                  onBlur={() => setFocusField(null)}
-                  className="w-full border-b border-gray-300 focus:border-[#2B2B2B] outline-none py-2 text-sm pr-8 transition-colors"
+                  className="w-full rounded-xl bg-[#F5F1EA] text-[#2B2B2B] placeholder:text-[#8A8378] border border-transparent focus:border-[#E8934A] focus:shadow-[0_0_0_3px_rgba(232,147,74,0.2)] outline-none py-2.5 pl-3.5 pr-10 text-sm transition-all duration-200"
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((s) => !s)}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8378] hover:text-[#2B2B2B] transition-transform duration-200 hover:scale-110"
                   tabIndex={-1}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && (
+              <p className="text-sm text-[#FF9E8A] bg-[#3B2A28] border border-[#5A3B37] rounded-lg px-3 py-2 animate-[fadeSlideDown_0.3s_ease-out]">
+                {error}
+              </p>
+            )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#2B2B2B] text-white font-semibold py-3 rounded-full hover:bg-black transition disabled:opacity-60"
+              className="w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
-              {loading ? 'Creating account...' : 'Sign up'}
+              {loading ? 'Creating account…' : 'Sign up'}
             </button>
 
             <button
               type="button"
               onClick={handleGoogleSignup}
-              className="w-full border border-gray-300 font-semibold py-3 rounded-full flex items-center justify-center gap-2 hover:border-gray-400 transition"
+              className="w-full border border-[#8FA0A9] text-[#F5F3EF] font-semibold py-3 rounded-full flex items-center justify-center gap-2 hover:bg-white/5 active:scale-[0.98] transition-all duration-200"
             >
               <svg width="16" height="16" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.66-.22-2.45H12v4.63h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.87c2.27-2.09 3.58-5.17 3.58-8.81z"/>
@@ -237,14 +238,27 @@ export default function SignupPage() {
             </button>
           </form>
 
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <p className="text-center text-sm text-[#AEBAC2] mt-6">
             Already have an account?{' '}
-            <a href="/login" className="font-semibold text-[#2B2B2B]">
+            <a href="/login" className="font-semibold text-[#E8934A] hover:underline">
               Log in
             </a>
           </p>
         </div>
       </div>
+
+      <style jsx global>{`
+        @keyframes fadeSlideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
