@@ -17,11 +17,8 @@ import {
   Loader2,
   ChevronRight,
   Camera,
-  Phone,
-  Mail,
-  Home,
-  Calendar,
-  Info,
+  UserCircle2,
+  Sparkles,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -40,15 +37,6 @@ interface Resident {
   created_at: string;
 }
 
-interface FamilyContact {
-  id: string;
-  full_name: string;
-  relationship: string | null;
-  phone: string | null;
-  email: string | null;
-  is_primary: boolean;
-}
-
 type Tab = 'overview' | 'residents' | 'staff';
 
 const emptyForm = {
@@ -61,17 +49,19 @@ const emptyForm = {
   status: 'active' as ResidentStatus,
 };
 
-const emptyStaffForm = {
-  full_name: '',
-  email: '',
-  phone: '',
-};
+const emptyStaffForm = { full_name: '', email: '', phone: '' };
 
 const NAV_ITEMS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'residents', label: 'Residents', icon: Users },
   { id: 'staff', label: 'Staff', icon: ClipboardList },
 ];
+
+const statusStyles: Record<ResidentStatus, string> = {
+  active: 'bg-[#CFE6DD] text-[#1E5C4C]',
+  discharged: 'bg-[#E9DDC2] text-[#6B4E1E]',
+  deceased: 'bg-[#DCDCDC] text-[#4B4B4B]',
+};
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -83,8 +73,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [adminName, setAdminName] = useState('');
 
-  // Add/Edit modal
   const [showModal, setShowModal] = useState(false);
   const [modalClosing, setModalClosing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -95,13 +85,6 @@ export default function AdminDashboard() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  // View detail modal
-  const [viewResident, setViewResident] = useState<Resident | null>(null);
-  const [viewClosing, setViewClosing] = useState(false);
-  const [familyContacts, setFamilyContacts] = useState<FamilyContact[]>([]);
-  const [loadingContacts, setLoadingContacts] = useState(false);
-
-  // Staff modal
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [staffForm, setStaffForm] = useState(emptyStaffForm);
   const [staffMessage, setStaffMessage] = useState('');
@@ -115,7 +98,18 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', data.user.id)
+          .single();
+        if (profile?.full_name) setAdminName(profile.full_name.split(' ')[0]);
+      }
+    })();
+  }, [supabase]);
 
   const fetchResidents = useCallback(async () => {
     setLoading(true);
@@ -123,7 +117,6 @@ export default function AdminDashboard() {
       .from('residents')
       .select('*')
       .order('created_at', { ascending: false });
-
     if (!fetchError && data) setResidents(data as Resident[]);
     setLoading(false);
   }, [supabase]);
@@ -135,7 +128,6 @@ export default function AdminDashboard() {
       supabase.from('family_contacts').select('id', { count: 'exact', head: true }),
       supabase.from('emergency_alerts').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     ]);
-
     setStats({
       totalResidents: residentsRes.count ?? 0,
       activeResidents: activeRes.count ?? 0,
@@ -185,29 +177,6 @@ export default function AdminDashboard() {
     }, 180);
   }
 
-  async function openViewModal(resident: Resident) {
-    setViewResident(resident);
-    setViewClosing(false);
-    setLoadingContacts(true);
-
-    const { data } = await supabase
-      .from('family_contacts')
-      .select('*')
-      .eq('resident_id', resident.id)
-      .order('is_primary', { ascending: false });
-
-    setFamilyContacts((data as FamilyContact[]) || []);
-    setLoadingContacts(false);
-  }
-
-  function closeViewModal() {
-    setViewClosing(true);
-    setTimeout(() => {
-      setViewResident(null);
-      setViewClosing(false);
-    }, 180);
-  }
-
   function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -218,21 +187,17 @@ export default function AdminDashboard() {
   async function uploadPhoto(residentId: string): Promise<string | null> {
     if (!photoFile) return null;
     setUploadingPhoto(true);
-
     const fileExt = photoFile.name.split('.').pop();
     const filePath = `${residentId}-${Date.now()}.${fileExt}`;
-
     const { error: uploadError } = await supabase.storage
       .from('resident-photos')
       .upload(filePath, photoFile, { upsert: true });
-
     setUploadingPhoto(false);
-
     if (uploadError) {
+      console.error('Storage upload error:', uploadError);
       setError(`Photo upload failed: ${uploadError.message}`);
       return null;
     }
-
     const { data } = supabase.storage.from('resident-photos').getPublicUrl(filePath);
     return data.publicUrl;
   }
@@ -265,7 +230,6 @@ export default function AdminDashboard() {
         .from('residents')
         .update({ ...payload, photo_url: photoUrl })
         .eq('id', editingId);
-
       setSaving(false);
       if (saveError) {
         setError(saveError.message);
@@ -277,13 +241,11 @@ export default function AdminDashboard() {
         .insert(payload)
         .select()
         .single();
-
       if (insertError || !inserted) {
         setSaving(false);
         setError(insertError?.message || 'Could not create resident.');
         return;
       }
-
       if (photoFile) {
         const uploaded = await uploadPhoto(inserted.id);
         if (uploaded) {
@@ -312,10 +274,8 @@ export default function AdminDashboard() {
 
   function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Staff accounts require the dual-role system (admin/staff) which isn't
-    // active in the database yet — profiles.role is currently locked to 'admin' only.
     setStaffMessage(
-      'Staff account creation is ready in the UI but needs the dual-role database setup to actually work. Ask to reintroduce staff roles when ready.'
+      'Staff account creation is ready in the UI but needs the dual-role database setup to actually work.'
     );
   }
 
@@ -323,11 +283,12 @@ export default function AdminDashboard() {
     r.full_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const statusStyles: Record<ResidentStatus, string> = {
-    active: 'bg-[#CFE6DD] text-[#1E5C4C] font-semibold',
-    discharged: 'bg-[#E9DDC2] text-[#6B4E1E] font-semibold',
-    deceased: 'bg-[#DCDCDC] text-[#4B4B4B] font-semibold',
-  };
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  })();
 
   return (
     <div className="min-h-screen bg-[#DEDAD0] flex font-sans text-[#2A2A28]">
@@ -351,372 +312,281 @@ export default function AdminDashboard() {
               onClick={() => setTab(id)}
               className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
                 tab === id
-                  ? 'bg-[#2F6F63] text-white'
+                  ? 'bg-[#2F6F63] text-white shadow-sm'
                   : 'text-[#4B4A46] hover:bg-[#E9E5D9] hover:translate-x-0.5'
               }`}
             >
               <Icon className="w-4 h-4" />
               {label}
-              {tab === id && (
-                <span className="absolute right-3 w-1.5 h-1.5 rounded-full bg-white animate-[pulseDot_2s_ease-in-out_infinite]" />
+              {id === 'residents' && stats.totalResidents > 0 && (
+                <span
+                  className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    tab === id ? 'bg-white/20 text-white' : 'bg-[#DEDAD0] text-[#5C5A54]'
+                  }`}
+                >
+                  {stats.totalResidents}
+                </span>
+              )}
+              {id === 'staff' && (
+                <span
+                  className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
+                    tab === id ? 'bg-white/20 text-white' : 'bg-[#E9DDC2] text-[#6B4E1E]'
+                  }`}
+                >
+                  soon
+                </span>
               )}
             </button>
           ))}
         </nav>
 
-        <button
-          onClick={handleSignOut}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-[#4B4A46] hover:bg-[#F3D9D3] hover:text-[#B23B2A] transition-all duration-200"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign out
-        </button>
+        <div className="border-t border-[#C9C4B6] pt-4 mt-4">
+          {adminName && (
+            <div className="flex items-center gap-2 px-3 mb-2">
+              <div className="w-7 h-7 rounded-full bg-[#2F6F63] text-white flex items-center justify-center text-xs font-bold">
+                {adminName.charAt(0)}
+              </div>
+              <span className="text-sm font-semibold text-[#2A2A28]">{adminName}</span>
+            </div>
+          )}
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-[#4B4A46] hover:bg-[#F3D9D3] hover:text-[#B23B2A] transition-all duration-200"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign out
+          </button>
+        </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 p-8 md:p-10 overflow-y-auto">
-        <div key={tab} className="animate-[fadeUp_0.4s_ease-out]">
-          {tab === 'overview' && (
-            <div>
-              <h1 className="text-2xl font-extrabold mb-1 text-[#1F1F1D] tracking-tight">Overview</h1>
-              <p className="text-[#5C5A54] mb-8">A quick look at how things stand today.</p>
-
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-                <StatCard label="Total residents" value={stats.totalResidents} accent="#2F6F63" delay={0} />
-                <StatCard label="Active residents" value={stats.activeResidents} accent="#1E5C4C" delay={80} />
-                <StatCard label="Family contacts" value={stats.familyContacts} accent="#33517A" delay={160} />
-                <StatCard
-                  label="Open alerts"
-                  value={stats.openAlerts}
-                  accent="#B23B2A"
-                  icon={<Bell className="w-4 h-4" />}
-                  delay={240}
-                  pulse={stats.openAlerts > 0}
-                />
-              </div>
-
-              <div className="bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] p-6 transition-shadow duration-300 hover:shadow-md">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-[#1F1F1D]">Recently added residents</h2>
-                  <button
-                    onClick={() => setTab('residents')}
-                    className="text-xs font-bold text-[#2F6F63] flex items-center gap-1 hover:gap-1.5 transition-all"
-                  >
-                    View all <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-6xl mx-auto p-8 md:p-10">
+          <div key={tab} className="animate-[fadeUp_0.4s_ease-out]">
+            {tab === 'overview' && (
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles className="w-5 h-5 text-[#2F6F63]" />
+                  <h1 className="text-2xl font-extrabold text-[#1F1F1D] tracking-tight">
+                    {greeting}{adminName ? `, ${adminName}` : ''}
+                  </h1>
                 </div>
-                {residents.slice(0, 5).length === 0 ? (
-                  <p className="text-sm text-[#6B695F]">No residents added yet.</p>
-                ) : (
-                  <div className="space-y-1">
-                    {residents.slice(0, 5).map((r, i) => (
+                <p className="text-[#5C5A54] mb-8">Here's how things stand today.</p>
+
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+                  <StatCard label="Total residents" value={stats.totalResidents} accent="#2F6F63" delay={0} icon={<Users className="w-4 h-4" />} />
+                  <StatCard label="Active residents" value={stats.activeResidents} accent="#1E5C4C" delay={80} icon={<UserCircle2 className="w-4 h-4" />} />
+                  <StatCard label="Family contacts" value={stats.familyContacts} accent="#33517A" delay={160} icon={<Users className="w-4 h-4" />} />
+                  <StatCard
+                    label="Open alerts"
+                    value={stats.openAlerts}
+                    accent="#B23B2A"
+                    icon={<Bell className="w-4 h-4" />}
+                    delay={240}
+                    pulse={stats.openAlerts > 0}
+                  />
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] p-6 transition-shadow duration-300 hover:shadow-md">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="font-bold text-[#1F1F1D]">Recently added residents</h2>
                       <button
-                        key={r.id}
-                        onClick={() => router.push(`/admin/residents/${r.id}`)}
-                        className="w-full flex items-center justify-between text-sm px-3 py-2.5 rounded-xl hover:bg-[#EBE8DD] transition-all duration-200 animate-[fadeUp_0.4s_ease-out_backwards] text-left"
-                        style={{ animationDelay: `${i * 60}ms` }}
+                        onClick={() => setTab('residents')}
+                        className="text-xs font-bold text-[#2F6F63] flex items-center gap-1 hover:gap-1.5 transition-all"
                       >
-                        <span className="font-semibold text-[#2A2A28]">{r.full_name}</span>
-                        <span className={`text-xs px-2 py-1 rounded-full ${statusStyles[r.status]}`}>
-                          {r.status}
-                        </span>
+                        View all <ChevronRight className="w-3.5 h-3.5" />
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {tab === 'residents' && (
-            <div>
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-                <div>
-                  <h1 className="text-2xl font-extrabold mb-1 text-[#1F1F1D] tracking-tight">Residents</h1>
-                  <p className="text-[#5C5A54]">Manage resident profiles and care details.</p>
-                </div>
-                <button
-                  onClick={openAddModal}
-                  className="flex items-center gap-2 bg-[#2F6F63] text-white font-semibold text-sm px-4 py-2.5 rounded-full hover:bg-[#265a50] active:scale-95 transition-all duration-200 shadow-sm hover:shadow-md"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add resident
-                </button>
-              </div>
-
-              <div className="relative mb-5 max-w-sm group">
-                <Search className="w-4 h-4 text-[#6B695F] absolute left-3 top-1/2 -translate-y-1/2 transition-colors group-focus-within:text-[#2F6F63]" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search residents..."
-                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-[#C9C4B6] bg-[#F5F3EC] text-sm text-[#2A2A28] placeholder:text-[#8A8878] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all duration-200"
-                />
-              </div>
-
-              <div className="bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] overflow-hidden transition-shadow duration-300 hover:shadow-md">
-                {loading ? (
-                  <div className="flex items-center justify-center py-16 text-[#6B695F]">
-                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    Loading residents...
-                  </div>
-                ) : filteredResidents.length === 0 ? (
-                  <div className="text-center py-16 text-[#6B695F] text-sm">
-                    No residents found. Add your first resident to get started.
-                  </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[#C9C4B6] text-left text-[#5C5A54] text-xs uppercase tracking-wide">
-                        <th className="px-6 py-3 font-bold">Name</th>
-                        <th className="px-6 py-3 font-bold">Room</th>
-                        <th className="px-6 py-3 font-bold">Status</th>
-                        <th className="px-6 py-3 font-bold text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredResidents.map((r, i) => (
-                        <tr
-                          key={r.id}
-                          onClick={() => router.push(`/admin/residents/${r.id}`)}
-                          className="border-b border-[#DEDAD0] last:border-0 hover:bg-[#EBE8DD] transition-all duration-200 animate-[fadeUp_0.35s_ease-out_backwards] cursor-pointer"
-                          style={{ animationDelay: `${i * 40}ms` }}
-                        >
-                          <td className="px-6 py-4 font-semibold text-[#2A2A28] flex items-center gap-3">
+                    </div>
+                    {residents.slice(0, 5).length === 0 ? (
+                      <EmptyState
+                        icon={<Users className="w-6 h-6" />}
+                        title="No residents yet"
+                        subtitle="Add your first resident to see them here."
+                      />
+                    ) : (
+                      <div className="space-y-1">
+                        {residents.slice(0, 5).map((r, i) => (
+                          <button
+                            key={r.id}
+                            onClick={() => router.push(`/admin/residents/${r.id}`)}
+                            className="w-full flex items-center gap-3 text-sm px-3 py-2.5 rounded-xl hover:bg-[#EBE8DD] transition-all duration-200 animate-[fadeUp_0.4s_ease-out_backwards] text-left"
+                            style={{ animationDelay: `${i * 60}ms` }}
+                          >
                             {r.photo_url ? (
-                              <img
-                                src={r.photo_url}
-                                alt={r.full_name}
-                                className="w-8 h-8 rounded-full object-cover"
-                              />
+                              <img src={r.photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
                             ) : (
                               <div className="w-8 h-8 rounded-full bg-[#DEDAD0] flex items-center justify-center text-xs font-bold text-[#6B695F]">
                                 {r.full_name.charAt(0)}
                               </div>
                             )}
-                            {r.full_name}
-                          </td>
-                          <td className="px-6 py-4 text-[#5C5A54]">{r.room_number || '—'}</td>
-                          <td className="px-6 py-4">
-                            <span className={`text-xs px-2 py-1 rounded-full ${statusStyles[r.status]}`}>
+                            <span className="font-semibold text-[#2A2A28] flex-1">{r.full_name}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full font-semibold ${statusStyles[r.status]}`}>
                               {r.status}
                             </span>
-                          </td>
-                          <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex justify-end gap-1">
-                              <button
-                                onClick={() => openEditModal(r)}
-                                className="p-2 rounded-lg text-[#6B695F] hover:bg-[#DEDAD0] hover:text-[#2A2A28] active:scale-90 transition-all duration-150"
-                                aria-label="Edit resident"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDelete(r.id)}
-                                className="p-2 rounded-lg text-[#6B695F] hover:bg-[#F3D9D3] hover:text-[#B23B2A] active:scale-90 transition-all duration-150"
-                                aria-label="Delete resident"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          )}
-
-          {tab === 'staff' && (
-            <div>
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-                <div>
-                  <h1 className="text-2xl font-extrabold mb-1 text-[#1F1F1D] tracking-tight">Staff</h1>
-                  <p className="text-[#5C5A54]">Manage staff accounts and access.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setStaffForm(emptyStaffForm);
-                    setStaffMessage('');
-                    setShowStaffModal(true);
-                  }}
-                  className="flex items-center gap-2 bg-[#2F6F63] text-white font-semibold text-sm px-4 py-2.5 rounded-full hover:bg-[#265a50] active:scale-95 transition-all duration-200 shadow-sm hover:shadow-md"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add staff
-                </button>
-              </div>
-
-              <div className="bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] p-10 text-center transition-shadow duration-300 hover:shadow-md">
-                <div className="w-12 h-12 rounded-2xl bg-[#DEDAD0] flex items-center justify-center mx-auto mb-4">
-                  <ClipboardList className="w-6 h-6 text-[#6B695F]" />
-                </div>
-                <p className="font-semibold text-[#2A2A28] mb-1">No staff accounts yet</p>
-                <p className="text-sm text-[#6B695F] max-w-sm mx-auto">
-                  Staff accounts will appear here once added. Full functionality activates
-                  once the dual-role system (admin/staff) is reintroduced to the database.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* Resident Detail (View) Modal */}
-      {viewResident && (
-        <div
-          className={`fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50 transition-opacity duration-200 ${
-            viewClosing ? 'opacity-0' : 'opacity-100 animate-[fadeIn_0.2s_ease-out]'
-          }`}
-          onClick={(e) => e.target === e.currentTarget && closeViewModal()}
-        >
-          <div
-            className={`bg-[#F5F3EC] rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto transition-all duration-200 ${
-              viewClosing
-                ? 'opacity-0 scale-95 translate-y-2'
-                : 'opacity-100 scale-100 translate-y-0 animate-[modalIn_0.25s_ease-out]'
-            }`}
-          >
-            <div className="relative">
-              <div className="h-28 bg-gradient-to-br from-[#2F6F63] to-[#1E5C4C]" />
-              <button
-                onClick={closeViewModal}
-                className="absolute top-4 right-4 text-white/80 hover:text-white hover:rotate-90 transition-all duration-200"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="absolute -bottom-10 left-6">
-                {viewResident.photo_url ? (
-                  <img
-                    src={viewResident.photo_url}
-                    alt={viewResident.full_name}
-                    className="w-20 h-20 rounded-2xl object-cover border-4 border-[#F5F3EC] shadow-md"
-                  />
-                ) : (
-                  <div className="w-20 h-20 rounded-2xl bg-[#DEDAD0] border-4 border-[#F5F3EC] shadow-md flex items-center justify-center text-2xl font-bold text-[#6B695F]">
-                    {viewResident.full_name.charAt(0)}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-14 px-6 pb-6">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="font-extrabold text-xl text-[#1F1F1D]">{viewResident.full_name}</h2>
-                <span className={`text-xs px-2 py-1 rounded-full ${statusStyles[viewResident.status]}`}>
-                  {viewResident.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-5 text-sm">
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-[#6B695F] mt-0.5" />
-                  <div>
-                    <p className="text-xs text-[#6B695F] font-semibold">Date of birth</p>
-                    <p className="text-[#2A2A28]">{viewResident.dob || 'Not set'}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Home className="w-4 h-4 text-[#6B695F] mt-0.5" />
-                  <div>
-                    <p className="text-xs text-[#6B695F] font-semibold">Room</p>
-                    <p className="text-[#2A2A28]">{viewResident.room_number || 'Not set'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {viewResident.address && (
-                <div className="mt-4 flex items-start gap-2 text-sm">
-                  <Home className="w-4 h-4 text-[#6B695F] mt-0.5" />
-                  <div>
-                    <p className="text-xs text-[#6B695F] font-semibold">Address</p>
-                    <p className="text-[#2A2A28]">{viewResident.address}</p>
-                  </div>
-                </div>
-              )}
-
-              {viewResident.medical_notes && (
-                <div className="mt-4 bg-white rounded-xl p-3 border border-[#C9C4B6]">
-                  <p className="text-xs font-semibold text-[#6B695F] mb-1 flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5" /> Medical notes
-                  </p>
-                  <p className="text-sm text-[#2A2A28]">{viewResident.medical_notes}</p>
-                </div>
-              )}
-
-              {viewResident.dietary_needs && (
-                <div className="mt-3 bg-white rounded-xl p-3 border border-[#C9C4B6]">
-                  <p className="text-xs font-semibold text-[#6B695F] mb-1 flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5" /> Dietary needs
-                  </p>
-                  <p className="text-sm text-[#2A2A28]">{viewResident.dietary_needs}</p>
-                </div>
-              )}
-
-              <div className="mt-6">
-                <p className="text-xs font-bold text-[#5C5A54] uppercase tracking-wide mb-3">
-                  Family contacts
-                </p>
-                {loadingContacts ? (
-                  <div className="flex items-center gap-2 text-sm text-[#6B695F]">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Loading...
-                  </div>
-                ) : familyContacts.length === 0 ? (
-                  <p className="text-sm text-[#6B695F]">No family contacts linked yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {familyContacts.map((c) => (
-                      <div key={c.id} className="bg-white rounded-xl p-3 border border-[#C9C4B6] text-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-semibold text-[#2A2A28]">{c.full_name}</span>
-                          {c.is_primary && (
-                            <span className="text-[10px] bg-[#CFE6DD] text-[#1E5C4C] font-bold px-2 py-0.5 rounded-full">
-                              PRIMARY
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[#6B695F] mb-1">{c.relationship}</p>
-                        <div className="flex flex-col gap-0.5 text-xs text-[#5C5A54]">
-                          {c.phone && (
-                            <span className="flex items-center gap-1.5">
-                              <Phone className="w-3 h-3" /> {c.phone}
-                            </span>
-                          )}
-                          {c.email && (
-                            <span className="flex items-center gap-1.5">
-                              <Mail className="w-3 h-3" /> {c.email}
-                            </span>
-                          )}
-                        </div>
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </div>
 
-              <div className="flex gap-3 pt-6">
-                <button
-                  onClick={closeViewModal}
-                  className="flex-1 py-2.5 rounded-full border border-[#C9C4B6] font-semibold text-sm text-[#2A2A28] hover:bg-[#DEDAD0] active:scale-95 transition-all duration-150"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => {
-                    closeViewModal();
-                    setTimeout(() => openEditModal(viewResident), 190);
-                  }}
-                  className="flex-1 py-2.5 rounded-full bg-[#2F6F63] text-white font-semibold text-sm hover:bg-[#265a50] active:scale-95 transition-all duration-150 shadow-sm hover:shadow-md"
-                >
-                  Edit resident
-                </button>
+                  <div className="bg-gradient-to-br from-[#2F6F63] to-[#1E5C4C] rounded-2xl p-6 text-white flex flex-col justify-between">
+                    <div>
+                      <h2 className="font-bold mb-2">Quick add</h2>
+                      <p className="text-sm text-white/80 mb-6">
+                        Add a new resident profile in seconds.
+                      </p>
+                    </div>
+                    <button
+                      onClick={openAddModal}
+                      className="flex items-center justify-center gap-2 bg-white text-[#1E5C4C] font-semibold text-sm py-2.5 rounded-full hover:bg-white/90 active:scale-95 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add resident
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {tab === 'residents' && (
+              <div>
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+                  <div>
+                    <h1 className="text-2xl font-extrabold mb-1 text-[#1F1F1D] tracking-tight">Residents</h1>
+                    <p className="text-[#5C5A54]">Manage resident profiles and care details.</p>
+                  </div>
+                  <button
+                    onClick={openAddModal}
+                    className="flex items-center gap-2 bg-[#2F6F63] text-white font-semibold text-sm px-4 py-2.5 rounded-full hover:bg-[#265a50] active:scale-95 transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add resident
+                  </button>
+                </div>
+
+                <div className="relative mb-5 max-w-sm group">
+                  <Search className="w-4 h-4 text-[#6B695F] absolute left-3 top-1/2 -translate-y-1/2 transition-colors group-focus-within:text-[#2F6F63]" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search residents..."
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-[#C9C4B6] bg-[#F5F3EC] text-sm text-[#2A2A28] placeholder:text-[#8A8878] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all duration-200"
+                  />
+                </div>
+
+                <div className="bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] overflow-hidden transition-shadow duration-300 hover:shadow-md">
+                  {loading ? (
+                    <div className="flex items-center justify-center py-16 text-[#6B695F]">
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      Loading residents...
+                    </div>
+                  ) : filteredResidents.length === 0 ? (
+                    <EmptyState
+                      icon={<Users className="w-6 h-6" />}
+                      title="No residents found"
+                      subtitle="Add your first resident to get started."
+                      className="py-16"
+                    />
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-[#C9C4B6] text-left text-[#5C5A54] text-xs uppercase tracking-wide">
+                          <th className="px-6 py-3 font-bold">Name</th>
+                          <th className="px-6 py-3 font-bold">Room</th>
+                          <th className="px-6 py-3 font-bold">Status</th>
+                          <th className="px-6 py-3 font-bold text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredResidents.map((r, i) => (
+                          <tr
+                            key={r.id}
+                            onClick={() => router.push(`/admin/residents/${r.id}`)}
+                            className="border-b border-[#DEDAD0] last:border-0 hover:bg-[#EBE8DD] transition-all duration-200 animate-[fadeUp_0.35s_ease-out_backwards] cursor-pointer group"
+                            style={{ animationDelay: `${i * 40}ms` }}
+                          >
+                            <td className="px-6 py-4 font-semibold text-[#2A2A28]">
+                              <div className="flex items-center gap-3">
+                                {r.photo_url ? (
+                                  <img src={r.photo_url} alt={r.full_name} className="w-9 h-9 rounded-full object-cover" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-full bg-[#DEDAD0] flex items-center justify-center text-xs font-bold text-[#6B695F]">
+                                    {r.full_name.charAt(0)}
+                                  </div>
+                                )}
+                                {r.full_name}
+                                <ChevronRight className="w-3.5 h-3.5 text-[#C9C4B6] opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all" />
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-[#5C5A54]">{r.room_number || '—'}</td>
+                            <td className="px-6 py-4">
+                              <span className={`text-xs px-2 py-1 rounded-full font-semibold ${statusStyles[r.status]}`}>
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => openEditModal(r)}
+                                  className="p-2 rounded-lg text-[#6B695F] hover:bg-[#DEDAD0] hover:text-[#2A2A28] active:scale-90 transition-all duration-150"
+                                  aria-label="Edit resident"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(r.id)}
+                                  className="p-2 rounded-lg text-[#6B695F] hover:bg-[#F3D9D3] hover:text-[#B23B2A] active:scale-90 transition-all duration-150"
+                                  aria-label="Delete resident"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tab === 'staff' && (
+              <div>
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+                  <div>
+                    <h1 className="text-2xl font-extrabold mb-1 text-[#1F1F1D] tracking-tight">Staff</h1>
+                    <p className="text-[#5C5A54]">Manage staff accounts and access.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setStaffForm(emptyStaffForm);
+                      setStaffMessage('');
+                      setShowStaffModal(true);
+                    }}
+                    className="flex items-center gap-2 bg-[#2F6F63] text-white font-semibold text-sm px-4 py-2.5 rounded-full hover:bg-[#265a50] active:scale-95 transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add staff
+                  </button>
+                </div>
+
+                <div className="bg-[#F5F3EC] rounded-2xl border border-[#C9C4B6] p-10 text-center transition-shadow duration-300 hover:shadow-md">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#E9DDC2] to-[#D8C193] flex items-center justify-center mx-auto mb-4">
+                    <ClipboardList className="w-7 h-7 text-[#6B4E1E]" />
+                  </div>
+                  <p className="font-semibold text-[#2A2A28] mb-1">Staff accounts launching soon</p>
+                  <p className="text-sm text-[#6B695F] max-w-sm mx-auto">
+                    The interface is ready — staff account creation activates once the
+                    dual-role system is added back to the database.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </main>
 
       {/* Add/Edit Resident Modal */}
       {showModal && (
@@ -733,7 +603,7 @@ export default function AdminDashboard() {
                 : 'opacity-100 scale-100 translate-y-0 animate-[modalIn_0.25s_ease-out]'
             }`}
           >
-            <div className="flex items-center justify-between px-6 py-5 border-b border-[#C9C4B6] sticky top-0 bg-[#F5F3EC]">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#C9C4B6] sticky top-0 bg-[#F5F3EC] z-10">
               <h2 className="font-bold text-lg text-[#1F1F1D]">
                 {editingId ? 'Edit resident' : 'Add resident'}
               </h2>
@@ -746,15 +616,10 @@ export default function AdminDashboard() {
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-4">
-              {/* Photo upload */}
               <div className="flex items-center gap-4">
                 <div className="relative">
                   {photoPreview ? (
-                    <img
-                      src={photoPreview}
-                      alt="Preview"
-                      className="w-16 h-16 rounded-2xl object-cover border border-[#C9C4B6]"
-                    />
+                    <img src={photoPreview} alt="Preview" className="w-16 h-16 rounded-2xl object-cover border border-[#C9C4B6]" />
                   ) : (
                     <div className="w-16 h-16 rounded-2xl bg-white border border-[#C9C4B6] flex items-center justify-center text-[#6B695F]">
                       <Camera className="w-5 h-5" />
@@ -769,13 +634,7 @@ export default function AdminDashboard() {
                   >
                     {photoPreview ? 'Change photo' : 'Upload photo'}
                   </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoSelect}
-                    className="hidden"
-                  />
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
                   <p className="text-xs text-[#8A8878] mt-0.5">JPG or PNG, up to a few MB</p>
                 </div>
               </div>
@@ -876,11 +735,7 @@ export default function AdminDashboard() {
                   disabled={saving || uploadingPhoto}
                   className="flex-1 py-2.5 rounded-full bg-[#2F6F63] text-white font-semibold text-sm hover:bg-[#265a50] active:scale-95 disabled:opacity-60 transition-all duration-150 shadow-sm hover:shadow-md"
                 >
-                  {saving || uploadingPhoto
-                    ? 'Saving...'
-                    : editingId
-                    ? 'Save changes'
-                    : 'Add resident'}
+                  {saving || uploadingPhoto ? 'Saving...' : editingId ? 'Save changes' : 'Add resident'}
                 </button>
               </div>
             </form>
@@ -976,10 +831,6 @@ export default function AdminDashboard() {
           from { opacity: 0; transform: scale(0.94) translateY(12px); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
-        @keyframes pulseDot {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
         @keyframes softPulse {
           0%, 100% { box-shadow: 0 0 0 0 rgba(178, 59, 42, 0.18); }
           50% { box-shadow: 0 0 0 6px rgba(178, 59, 42, 0); }
@@ -990,19 +841,9 @@ export default function AdminDashboard() {
 }
 
 function StatCard({
-  label,
-  value,
-  accent,
-  icon,
-  delay = 0,
-  pulse = false,
+  label, value, accent, icon, delay = 0, pulse = false,
 }: {
-  label: string;
-  value: number;
-  accent: string;
-  icon?: React.ReactNode;
-  delay?: number;
-  pulse?: boolean;
+  label: string; value: number; accent: string; icon?: React.ReactNode; delay?: number; pulse?: boolean;
 }) {
   return (
     <div
@@ -1013,11 +854,34 @@ function StatCard({
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-bold text-[#5C5A54] uppercase tracking-wide">{label}</span>
-        {icon && <span style={{ color: accent }}>{icon}</span>}
+        {icon && (
+          <span
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ color: accent, backgroundColor: `${accent}1A` }}
+          >
+            {icon}
+          </span>
+        )}
       </div>
       <p className="text-3xl font-extrabold transition-all duration-500" style={{ color: accent }}>
         {value}
       </p>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon, title, subtitle, className = '',
+}: {
+  icon: React.ReactNode; title: string; subtitle: string; className?: string;
+}) {
+  return (
+    <div className={`flex flex-col items-center justify-center text-center ${className}`}>
+      <div className="w-12 h-12 rounded-2xl bg-[#DEDAD0] flex items-center justify-center text-[#6B695F] mb-3">
+        {icon}
+      </div>
+      <p className="font-semibold text-[#2A2A28] mb-0.5">{title}</p>
+      <p className="text-sm text-[#6B695F]">{subtitle}</p>
     </div>
   );
 }

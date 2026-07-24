@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, HeartHandshake } from 'lucide-react';
+import { Eye, EyeOff, HeartHandshake, ChevronDown, ShieldCheck, ClipboardList, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function getErrorMessage(err: unknown): string {
@@ -16,8 +16,16 @@ function getErrorMessage(err: unknown): string {
   }
 }
 
+type Role = 'admin' | 'staff';
+
+const ROLE_OPTIONS: { value: Role; label: string; description: string; icon: typeof ShieldCheck }[] = [
+  { value: 'staff', label: 'Staff', description: 'Log daily care and updates', icon: ClipboardList },
+  { value: 'admin', label: 'Admin', description: 'Manage residents and staff', icon: ShieldCheck },
+];
+
 export default function SignupPage() {
   const router = useRouter();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -25,6 +33,8 @@ export default function SignupPage() {
     phone: '',
     password: '',
   });
+  const [role, setRole] = useState<Role>('staff');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -32,6 +42,16 @@ export default function SignupPage() {
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   function handleChange(field: keyof typeof formData, value: string) {
@@ -53,6 +73,7 @@ export default function SignupPage() {
           data: {
             full_name: formData.fullName,
             phone_number: formData.phone,
+            role,
           },
         },
       });
@@ -99,6 +120,8 @@ export default function SignupPage() {
     { key: 'email', label: 'Email', type: 'email', placeholder: 'jane@example.com', required: true },
     { key: 'phone', label: 'Phone number', type: 'tel', placeholder: '+34 600 000 000' },
   ];
+
+  const selectedRole = ROLE_OPTIONS.find((r) => r.value === role)!;
 
   return (
     <div className="min-h-screen bg-[#3B4A54] flex items-center justify-center p-6">
@@ -151,9 +174,60 @@ export default function SignupPage() {
           <h1 className="font-serif text-2xl text-[#F5F3EF] mb-1">
             Create your account
           </h1>
-          <p className="text-sm text-[#AEBAC2] mb-8">
+          <p className="text-sm text-[#AEBAC2] mb-6">
             Join ElderLink to stay connected with care updates.
           </p>
+
+          {/* Role dropdown */}
+          <div ref={dropdownRef} className="relative mb-6">
+            <label className="text-xs font-semibold text-[#C7D0D6] tracking-wide mb-1.5 block">
+              I'm signing up as
+            </label>
+            <button
+              type="button"
+              onClick={() => setDropdownOpen((o) => !o)}
+              className="w-full flex items-center justify-between rounded-xl bg-[#F5F1EA] px-3.5 py-2.5 text-sm border border-transparent hover:border-[#E8934A]/40 transition-all duration-200"
+            >
+              <span className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-lg bg-[#E8934A]/15 flex items-center justify-center">
+                  <selectedRole.icon className="w-3.5 h-3.5 text-[#C1701F]" />
+                </span>
+                <span className="text-left">
+                  <span className="block font-semibold text-[#2B2B2B]">{selectedRole.label}</span>
+                </span>
+              </span>
+              <ChevronDown
+                className={`w-4 h-4 text-[#8A8378] transition-transform duration-200 ${
+                  dropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {dropdownOpen && (
+              <div className="absolute z-20 top-full mt-2 w-full bg-[#F5F1EA] rounded-xl shadow-xl border border-black/5 overflow-hidden animate-[dropIn_0.18s_ease-out]">
+                {ROLE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setRole(option.value);
+                      setDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-3 hover:bg-black/5 transition-colors duration-150 text-left"
+                  >
+                    <span className="w-8 h-8 rounded-lg bg-[#E8934A]/15 flex items-center justify-center shrink-0">
+                      <option.icon className="w-4 h-4 text-[#C1701F]" />
+                    </span>
+                    <span className="flex-1">
+                      <span className="block text-sm font-semibold text-[#2B2B2B]">{option.label}</span>
+                      <span className="block text-xs text-[#8A8378]">{option.description}</span>
+                    </span>
+                    {role === option.value && <Check className="w-4 h-4 text-[#C1701F]" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <form onSubmit={handleSignup} className="space-y-5">
             {fields.map((field, i) => (
@@ -220,7 +294,7 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
-              {loading ? 'Creating account…' : 'Sign up'}
+              {loading ? 'Creating account…' : `Sign up as ${selectedRole.label}`}
             </button>
 
             <button
@@ -249,14 +323,12 @@ export default function SignupPage() {
 
       <style jsx global>{`
         @keyframes fadeSlideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-6px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes dropIn {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </div>
