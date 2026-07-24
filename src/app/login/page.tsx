@@ -11,6 +11,18 @@ function getErrorMessage(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
+// Normalizes common Supabase auth error messages into readable copy.
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('invalid login credentials')) {
+    return 'Incorrect email or password.';
+  }
+  if (m.includes('email not confirmed')) {
+    return 'Please confirm your email before signing in — check your inbox for the confirmation link.';
+  }
+  return message;
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -35,29 +47,65 @@ export default function LoginPage() {
       const supabase = createClient();
 
       const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithPassword({ email, password });
+        await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
 
       if (signInError) {
-        setError(signInError.message);
+        setError(friendlyAuthError(signInError.message));
         setLoading(false);
         return;
       }
 
-      // Just confirm a matching profile row exists — single role (admin) for now
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', signInData.user.id)
-        .single();
+      const userId = signInData.user.id;
 
-      if (profileError || !profile) {
-        setError('Could not find a matching profile.');
+      // There's no single "profiles" table anymore — role lives in which
+      // table the id shows up in. Check admins first, then staff.
+      const { data: adminRow, error: adminError } = await supabase
+        .from('admins')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (adminError) {
+        console.error('Admin lookup failed:', adminError);
+        setError('Something went wrong checking your account. Please try again.');
         await supabase.auth.signOut();
         setLoading(false);
         return;
       }
 
-      router.push('/admin/dashboard');
+      if (adminRow) {
+        router.push('/admin/dashboard');
+        return;
+      }
+
+      const { data: staffRow, error: staffError } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (staffError) {
+        console.error('Staff lookup failed:', staffError);
+        setError('Something went wrong checking your account. Please try again.');
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      if (staffRow) {
+        router.push('/staff/dashboard');
+        return;
+      }
+
+      // Signed in successfully but no row in either table — shouldn't
+      // normally happen if the signup trigger ran correctly, but guard
+      // against it anyway rather than silently letting them into nothing.
+      setError('Could not find a matching account. Please contact support.');
+      await supabase.auth.signOut();
+      setLoading(false);
     } catch (err) {
       console.error('Login failed:', err);
       setError(getErrorMessage(err));
@@ -77,10 +125,12 @@ export default function LoginPage() {
         },
       });
       if (oauthError) {
-        setError(oauthError.message);
+        setError(friendlyAuthError(oauthError.message));
         setGoogleLoading(false);
       }
-      // On success, the browser redirects away — no need to reset loading here
+      // On success, the browser redirects away — no need to reset loading here.
+      // Note: your /auth/callback route needs the same admin/staff lookup
+      // logic above to decide where to send Google-authenticated users.
     } catch (err) {
       console.error('Google login failed:', err);
       setError(getErrorMessage(err));

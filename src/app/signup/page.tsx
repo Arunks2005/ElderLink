@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, HeartHandshake, ChevronDown, ShieldCheck, ClipboardList, Check } from 'lucide-react';
+import { Eye, EyeOff, HeartHandshake, ChevronDown, ShieldCheck, ClipboardList, Check, MailCheck } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function getErrorMessage(err: unknown): string {
@@ -14,6 +14,22 @@ function getErrorMessage(err: unknown): string {
   } catch {
     return 'Something went wrong. Please try again.';
   }
+}
+
+// Supabase doesn't always give a clean "duplicate email" error message —
+// this normalizes the common variants into something readable.
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('already registered') || m.includes('already exists') || m.includes('user already registered')) {
+    return 'An account with this email already exists. Try logging in instead.';
+  }
+  if (m.includes('password') && m.includes('character')) {
+    return 'Password must be at least 6 characters.';
+  }
+  if (m.includes('invalid') && m.includes('email')) {
+    return 'Please enter a valid email address.';
+  }
+  return message;
 }
 
 type Role = 'admin' | 'staff';
@@ -39,6 +55,11 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
+  // Shown after a successful signup that requires email confirmation.
+  // Supabase returns a user with an empty identities[] array when the
+  // account already existed but wasn't confirmed, so we still need to
+  // branch on that instead of trusting "no error" alone.
+  const [signupComplete, setSignupComplete] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -66,24 +87,59 @@ export default function SignupPage() {
     try {
       const supabase = createClient();
 
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.fullName,
-            phone_number: formData.phone,
-            role,
-          },
-        },
-      });
+      // Trim inputs so stray whitespace doesn't create a mismatched/duplicate account
+      const email = formData.email.trim().toLowerCase();
+      const fullName = formData.fullName.trim();
+      const phone = formData.phone.trim();
 
-      if (signUpError) {
-        setError(signUpError.message || getErrorMessage(signUpError));
+      if (!fullName || !email || !formData.password) {
+        setError('Please fill in all required fields.');
         setLoading(false);
         return;
       }
 
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password: formData.password,
+        options: {
+          // These three keys land in auth.users.raw_user_meta_data and are
+          // read by the handle_new_user() trigger to create the matching
+          // row in admins or staff. Keep these key names in sync with the
+          // trigger (full_name, phone_number, role).
+          data: {
+            full_name: fullName,
+            phone_number: phone,
+            role,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (signUpError) {
+        setError(friendlyAuthError(signUpError.message || getErrorMessage(signUpError)));
+        setLoading(false);
+        return;
+      }
+
+      // Supabase quirk: if the email already exists but is unconfirmed,
+      // signUp() can return success with no error but an empty identities
+      // array instead of throwing. Catch that case explicitly.
+      if (data?.user && data.user.identities && data.user.identities.length === 0) {
+        setError('An account with this email already exists. Try logging in instead.');
+        setLoading(false);
+        return;
+      }
+
+      // If email confirmation is required, there's no active session yet —
+      // show a confirmation screen instead of redirecting to /login, where
+      // they'd otherwise just hit "invalid credentials" until they confirm.
+      if (data?.user && !data.session) {
+        setSignupComplete(true);
+        setLoading(false);
+        return;
+      }
+
+      // Email confirmation is off and a session was created immediately.
       router.push('/login');
     } catch (err) {
       console.error('Signup failed:', err);
@@ -100,9 +156,14 @@ export default function SignupPage() {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          // Google signups skip this form, so the role/full_name metadata
+          // never gets set here — pass role through as a query param and
+          // read it in your /auth/callback route to insert into admins/staff
+          // there instead. Adjust the callback route accordingly.
+          queryParams: { role },
         },
       });
-      if (oauthError) setError(oauthError.message || getErrorMessage(oauthError));
+      if (oauthError) setError(friendlyAuthError(oauthError.message || getErrorMessage(oauthError)));
     } catch (err) {
       console.error('Google signup failed:', err);
       setError(getErrorMessage(err));
@@ -122,6 +183,30 @@ export default function SignupPage() {
   ];
 
   const selectedRole = ROLE_OPTIONS.find((r) => r.value === role)!;
+
+  // Post-signup confirmation screen
+  if (signupComplete) {
+    return (
+      <div className="min-h-screen bg-[#3B4A54] flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-3xl bg-[#46565F] p-10 text-center shadow-2xl border border-white/10">
+          <div className="w-14 h-14 rounded-full bg-[#E8934A]/15 flex items-center justify-center mx-auto mb-5">
+            <MailCheck className="w-6 h-6 text-[#E8934A]" />
+          </div>
+          <h1 className="font-serif text-2xl text-[#F5F3EF] mb-2">Check your email</h1>
+          <p className="text-sm text-[#AEBAC2] leading-relaxed mb-6">
+            We sent a confirmation link to <span className="text-[#F5F3EF] font-semibold">{formData.email}</span>.
+            Confirm your account to sign in as {selectedRole.label.toLowerCase()}.
+          </p>
+          <a
+            href="/login"
+            className="inline-block w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] transition-all duration-200"
+          >
+            Back to login
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#3B4A54] flex items-center justify-center p-6">
