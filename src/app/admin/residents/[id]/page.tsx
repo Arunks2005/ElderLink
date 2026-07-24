@@ -160,7 +160,7 @@ export default function ResidentProfilePage() {
   if (!resident || !form) {
     return (
       <div className="min-h-screen bg-[#DEDAD0] flex flex-col items-center justify-center gap-4">
-        <p className="text-[#6B695F]">Resident not found.</p>
+        <p className="text-[#5C5A54] font-medium">Resident not found.</p>
         <button
           onClick={() => router.push('/admin/dashboard')}
           className="text-sm font-semibold text-[#2F6F63] hover:underline"
@@ -183,50 +183,53 @@ export default function ResidentProfilePage() {
         </button>
 
         <div className="bg-[#F5F3EC] rounded-3xl border border-[#C9C4B6] shadow-sm overflow-hidden animate-[fadeUp_0.4s_ease-out]">
-          {/* Header with photo, plenty of clearance so nothing gets cropped */}
-          <div className="bg-gradient-to-br from-[#2F6F63] to-[#1E5C4C] px-8 pt-8 pb-16 relative">
-            <div className="flex items-start gap-5">
-              <div className="relative shrink-0">
-                {photoPreview ? (
+          {/* Header banner (no photo cropped into it) */}
+          <div className="bg-gradient-to-br from-[#2F6F63] to-[#1E5C4C] px-8 pt-8 pb-14" />
+
+          {/* Photo overlaps the banner in its own frame — full image always visible */}
+          <div className="px-8 -mt-14 flex items-end gap-5">
+            <div className="relative shrink-0">
+              {photoPreview ? (
+                <div className="w-28 h-28 rounded-2xl border-4 border-[#F5F3EC] shadow-md bg-white overflow-hidden">
                   <img
                     src={photoPreview}
                     alt={resident.full_name}
-                    className="w-24 h-24 rounded-2xl object-cover border-4 border-white/90 shadow-md"
+                    className="w-full h-full object-contain"
                   />
-                ) : (
-                  <div className="w-24 h-24 rounded-2xl bg-white/20 border-4 border-white/90 shadow-md flex items-center justify-center text-3xl font-bold text-white">
-                    {resident.full_name.charAt(0)}
-                  </div>
-                )}
-                {editing && (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center hover:scale-110 transition-transform"
-                  >
-                    <Camera className="w-4 h-4 text-[#2F6F63]" />
-                  </button>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoSelect}
-                  className="hidden"
-                />
-              </div>
+                </div>
+              ) : (
+                <div className="w-28 h-28 rounded-2xl bg-[#DEDAD0] border-4 border-[#F5F3EC] shadow-md flex items-center justify-center text-3xl font-bold text-[#5C5A54]">
+                  {resident.full_name.charAt(0)}
+                </div>
+              )}
+              {editing && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-[#2F6F63] shadow-md flex items-center justify-center hover:scale-110 transition-transform"
+                >
+                  <Camera className="w-4 h-4 text-white" />
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoSelect}
+                className="hidden"
+              />
+            </div>
 
-              <div className="pt-1">
-                <h1 className="text-2xl font-extrabold text-white">{resident.full_name}</h1>
-                <span className={`inline-block mt-2 text-xs px-2 py-1 rounded-full ${statusStyles[resident.status]}`}>
-                  {resident.status}
-                </span>
-              </div>
+            <div className="pb-2">
+              <h1 className="text-2xl font-extrabold text-[#1F1F1D]">{resident.full_name}</h1>
+              <span className={`inline-block mt-2 text-xs px-2.5 py-1 rounded-full ${statusStyles[resident.status]}`}>
+                {resident.status}
+              </span>
             </div>
           </div>
 
           {/* Body */}
-          <div className="p-8 -mt-8">
+          <div className="p-8 pt-6">
             {!editing ? (
               <>
                 <div className="grid sm:grid-cols-2 gap-4 mb-5">
@@ -306,7 +309,7 @@ export default function ResidentProfilePage() {
                     required
                     value={form.full_name}
                     onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
+                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
                   />
                 </div>
 
@@ -317,7 +320,7 @@ export default function ResidentProfilePage() {
                       type="date"
                       value={form.dob ?? ''}
                       onChange={(e) => setForm({ ...form, dob: e.target.value })}
-                      className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
+                      className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
                     />
                   </div>
                   <div>
@@ -325,7 +328,7 @@ export default function ResidentProfilePage() {
                     <input
                       value={form.room_number ?? ''}
                       onChange={(e) => setForm({ ...form, room_number: e.target.value })}
-                      className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
+                      className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
                     />
                   </div>
                 </div>
@@ -335,7 +338,7 @@ export default function ResidentProfilePage() {
                   <input
                     value={form.address ?? ''}
                     onChange={(e) => setForm({ ...form, address: e.target.value })}
-                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
+                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
                   />
                 </div>
 
@@ -345,7 +348,7 @@ export default function ResidentProfilePage() {
                     rows={2}
                     value={form.medical_notes ?? ''}
                     onChange={(e) => setForm({ ...form, medical_notes: e.target.value })}
-                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all resize-none"
+                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all resize-none"
                   />
                 </div>
 
@@ -355,7 +358,7 @@ export default function ResidentProfilePage() {
                     rows={2}
                     value={form.dietary_needs ?? ''}
                     onChange={(e) => setForm({ ...form, dietary_needs: e.target.value })}
-                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all resize-none"
+                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all resize-none"
                   />
                 </div>
 
@@ -364,7 +367,7 @@ export default function ResidentProfilePage() {
                   <select
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value as ResidentStatus })}
-                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
+                    className="mt-1.5 w-full rounded-xl border border-[#C9C4B6] bg-white px-3.5 py-2.5 text-sm text-[#2A2A28] outline-none focus:border-[#2F6F63] focus:shadow-[0_0_0_3px_rgba(47,111,99,0.18)] transition-all"
                   >
                     <option value="active">Active</option>
                     <option value="discharged">Discharged</option>
@@ -373,7 +376,7 @@ export default function ResidentProfilePage() {
                 </div>
 
                 {error && (
-                  <p className="text-sm text-[#B23B2A] bg-[#F3D9D3] border border-[#E0AFA5] rounded-lg px-3 py-2">
+                  <p className="text-sm text-[#B23B2A] font-medium bg-[#F3D9D3] border border-[#E0AFA5] rounded-lg px-3 py-2">
                     {error}
                   </p>
                 )}
@@ -387,7 +390,7 @@ export default function ResidentProfilePage() {
                       setPhotoPreview(resident.photo_url);
                       setPhotoFile(null);
                     }}
-                    className="flex-1 py-2.5 rounded-full border border-[#C9C4B6] font-semibold text-sm hover:bg-[#DEDAD0] transition-all"
+                    className="flex-1 py-2.5 rounded-full border border-[#C9C4B6] font-semibold text-sm text-[#2A2A28] hover:bg-[#DEDAD0] transition-all"
                   >
                     Cancel
                   </button>
@@ -431,7 +434,7 @@ function InfoRow({
       <Icon className="w-4 h-4 text-[#6B695F] mt-0.5" />
       <div>
         <p className="text-xs text-[#6B695F] font-semibold">{label}</p>
-        <p className="text-[#2A2A28]">{value}</p>
+        <p className="text-[#2A2A28] font-medium">{value}</p>
       </div>
     </div>
   );
