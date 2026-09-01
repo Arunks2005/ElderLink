@@ -31,6 +31,8 @@ import {
   AlertCircle,
   CheckCircle2,
   UserCheck,
+  Bot,
+  Sparkles,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -85,7 +87,7 @@ interface FamilyContact {
   resident_name?: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
 const emptyResidentForm = {
   full_name: '',
   dob: '',
@@ -128,9 +130,9 @@ const NAV_ITEMS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: s
 
 // Reusable input field classes to guarantee visible fonts across all browsers/themes
 const INPUT_CLASS =
-  'w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 font-semibold placeholder:text-gray-400 placeholder:font-normal outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all text-sm';
+  'w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold placeholder:text-slate-400 placeholder:font-normal outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all text-sm';
 const SELECT_CLASS =
-  'w-full px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-900 font-semibold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all text-sm';
+  'w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-semibold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all text-sm';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getInitials(name: string) {
@@ -195,6 +197,7 @@ export default function AdminDashboard() {
   const [staffList, setStaffList] = useState<(StaffMember & StaffDetails)[]>([]);
   const [pendingStaff, setPendingStaff] = useState<StaffMember[]>([]);
   const [isNewAssignment, setIsNewAssignment] = useState(false);
+  const [isNewStaffCreation, setIsNewStaffCreation] = useState(false);
   const [staffLoading, setStaffLoading] = useState(true);
   const [staffSearch, setStaffSearch] = useState('');
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -376,8 +379,19 @@ export default function AdminDashboard() {
   }
 
   // ── Staff helpers ──────────────────────────────────────────────────────────
+  function openAddStaff() {
+    setIsNewStaffCreation(true);
+    setIsNewAssignment(false);
+    setEditingStaffId(null);
+    setStaffForm(emptyStaffForm);
+    setStaffError('');
+    setStaffModalClosing(false);
+    setShowStaffModal(true);
+  }
+
   function openAssignStaff(s: StaffMember) {
     setIsNewAssignment(true);
+    setIsNewStaffCreation(false);
     setEditingStaffId(s.id);
     setStaffForm({
       ...emptyStaffForm,
@@ -391,6 +405,7 @@ export default function AdminDashboard() {
   }
 
   function openEditStaff(s: StaffMember & StaffDetails) {
+    setIsNewStaffCreation(false);
     setIsNewAssignment(false);
     setEditingStaffId(s.id);
     setStaffForm({
@@ -421,17 +436,80 @@ export default function AdminDashboard() {
 
   async function handleSaveStaff(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingStaffId) {
-      setStaffError('No staff account selected.');
-      return;
-    }
     setStaffSaving(true);
     setStaffError('');
+
+    // New staff creation (create staff + details in one go)
+    if (isNewStaffCreation) {
+      if (!staffForm.email || !staffForm.full_name) {
+        setStaffError('Full name and email are required.');
+        setStaffSaving(false);
+        return;
+      }
+
+      // Insert new staff member
+      const { data: staffData, error: staffErr } = await supabase
+        .from('staff')
+        .insert({
+          full_name: staffForm.full_name,
+          email: staffForm.email,
+          phone_number: staffForm.phone_number || null,
+        })
+        .select()
+        .single();
+
+      if (staffErr) {
+        setStaffError(staffErr.message);
+        setStaffSaving(false);
+        return;
+      }
+
+      const staffId = staffData.id;
+
+      // Insert staff details
+      const detailsPayload = {
+        id: staffId,
+        room_no_assigned: staffForm.room_no_assigned || null,
+        shift_start: staffForm.shift_start || null,
+        shift_end: staffForm.shift_end || null,
+        position: staffForm.position || null,
+        department: staffForm.department || null,
+        status: staffForm.status,
+        phone_verified: staffForm.phone_verified,
+        notes: staffForm.notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: detailsErr } = await supabase
+        .from('staff_details')
+        .insert(detailsPayload);
+
+      setStaffSaving(false);
+
+      if (detailsErr) {
+        setStaffError(detailsErr.message);
+        return;
+      }
+
+      closeStaffModal();
+      fetchStaff();
+      fetchStats();
+      return;
+    }
+
+    // Existing staff update
+    if (!editingStaffId) {
+      setStaffError('No staff account selected.');
+      setStaffSaving(false);
+      return;
+    }
 
     const { error: staffErr } = await supabase
       .from('staff')
       .update({
         full_name: staffForm.full_name,
+        email: staffForm.email,
         phone_number: staffForm.phone_number,
       })
       .eq('id', editingStaffId);
@@ -575,15 +653,15 @@ export default function AdminDashboard() {
 
   return (
     <div
-      className="min-h-screen flex font-sans antialiased text-gray-900"
-      style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #f7fffe 40%, #ecfdf5 100%)' }}
+      className="min-h-screen flex font-sans antialiased text-slate-900"
+      style={{ background: 'linear-gradient(135deg, #eef3f1 0%, #f4f7f6 45%, #eaf2ee 100%)' }}
     >
       {/* ── SIDEBAR ──────────────────────────────────────────────────────────── */}
       <aside
         className={`w-72 shrink-0 flex flex-col border-r border-emerald-100/60 transition-all duration-500 ease-out ${
           mounted ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-6'
         }`}
-        style={{ background: 'linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%)' }}
+        style={{ background: 'linear-gradient(180deg, #fbfdfc 0%, #eef3f1 100%)' }}
       >
         {/* Brand */}
         <div className="px-6 pt-7 pb-6 border-b border-emerald-100/60">
@@ -595,7 +673,7 @@ export default function AdminDashboard() {
               <HeartHandshake className="w-5 h-5 text-white" strokeWidth={2} />
             </div>
             <div>
-              <p className="text-sm font-black tracking-tight text-gray-900">ElderLink</p>
+              <p className="text-sm font-bold tracking-tight text-slate-900">ElderLink</p>
               <p className="text-[10px] font-bold text-emerald-600 tracking-widest uppercase">
                 Care Management
               </p>
@@ -614,7 +692,7 @@ export default function AdminDashboard() {
                 className={`relative w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-left transition-all duration-200 group ${
                   active
                     ? 'text-white shadow-lg shadow-emerald-200/50'
-                    : 'text-gray-700 hover:bg-emerald-50/80 hover:text-emerald-700'
+                    : 'text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-700'
                 }`}
                 style={
                   active
@@ -626,18 +704,18 @@ export default function AdminDashboard() {
                   className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
                     active
                       ? 'bg-white/20'
-                      : 'bg-gray-100 group-hover:bg-emerald-100 group-hover:scale-105'
+                      : 'bg-slate-100 group-hover:bg-emerald-100 group-hover:scale-105'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-gray-600 group-hover:text-emerald-600'}`} />
+                  <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-600 group-hover:text-emerald-600'}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-bold ${active ? 'text-white' : 'text-gray-900'}`}>{label}</p>
-                  <p className={`text-[10px] truncate ${active ? 'text-white/80' : 'text-gray-500'}`}>{desc}</p>
+                  <p className={`text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}`}>{label}</p>
+                  <p className={`text-[10px] truncate ${active ? 'text-white/80' : 'text-slate-500'}`}>{desc}</p>
                 </div>
                 {(id === 'residents' || id === 'staff') && (
                   <span
-                    className={`text-[11px] font-black px-2 py-0.5 rounded-full ${
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                       active ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
                     }`}
                   >
@@ -650,15 +728,46 @@ export default function AdminDashboard() {
               </button>
             );
           })}
+
+          {/* AI Behavioral Insights — separate route, distinct styling */}
+          <div className="pt-3 mt-3 border-t border-emerald-100/70">
+            <p className="px-4 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              AI Tools
+            </p>
+            <button
+              onClick={() => router.push('/admin/behavioral-trends')}
+              className="relative w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-left transition-all duration-200 group text-slate-700 hover:text-white overflow-hidden"
+              style={{ background: 'transparent' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1, #7c3aed)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 group-hover:bg-white/20 transition-all duration-200">
+                <Bot className="w-4 h-4 text-indigo-600 group-hover:text-white transition-colors" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold flex items-center gap-1.5 text-slate-900 group-hover:text-white">
+                  Behavioral AI
+                  <Sparkles className="w-3 h-3 text-indigo-500 group-hover:text-white" />
+                </p>
+                <p className="text-[10px] truncate text-slate-500 group-hover:text-white/80">
+                  Trend insights via Groq
+                </p>
+              </div>
+            </button>
+          </div>
         </nav>
 
         {/* Sign out */}
         <div className="px-4 pb-6">
           <button
             onClick={handleSignOut}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 transition-all duration-200 group"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all duration-200 group"
           >
-            <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center group-hover:bg-red-100 transition-colors">
+            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-red-100 transition-colors">
               <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
             </div>
             Sign out
@@ -673,12 +782,22 @@ export default function AdminDashboard() {
           {/* ════ OVERVIEW ════════════════════════════════════════════════════ */}
           {tab === 'overview' && (
             <div className="max-w-6xl mx-auto">
-              <div className="mb-8">
-                <h1 className="text-3xl font-black text-gray-900 mb-1">Good morning</h1>
-                <p className="text-gray-600 font-medium">Here's what's happening at your facility today.</p>
+              <div className="mb-8 flex items-start justify-between flex-wrap gap-4">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-900 mb-1">Good morning</h1>
+                  <p className="text-slate-600 font-medium">Here's what's happening at your facility today.</p>
+                </div>
+                <button
+                  onClick={() => router.push('/admin/behavioral-trends')}
+                  className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-white text-sm font-bold shadow-lg shadow-indigo-200/50 hover:shadow-xl active:scale-95 transition-all duration-200"
+                  style={{ background: 'linear-gradient(135deg, #6366f1, #7c3aed)' }}
+                >
+                  <Bot className="w-4 h-4" />
+                  Ask Behavioral AI
+                </button>
               </div>
 
-              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
                 <StatCard
                   label="Total residents"
                   value={stats.totalResidents}
@@ -713,14 +832,14 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="grid lg:grid-cols-5 gap-5">
-                <div className="lg:col-span-3 bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div className="grid lg:grid-cols-5 gap-6">
+                <div className="lg:col-span-3 bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center">
                         <TrendingUp className="w-4 h-4 text-emerald-700" />
                       </div>
-                      <h2 className="font-black text-gray-900">Recent residents</h2>
+                      <h2 className="font-bold text-slate-900">Recent residents</h2>
                     </div>
                     <button
                       onClick={() => setTab('residents')}
@@ -747,10 +866,10 @@ export default function AdminDashboard() {
                               {getInitials(r.full_name)}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-bold text-gray-900 text-sm truncate group-hover:text-emerald-700 transition-colors">
+                              <p className="font-bold text-slate-900 text-sm truncate group-hover:text-emerald-700 transition-colors">
                                 {r.full_name}
                               </p>
-                              <p className="text-xs text-gray-500 font-medium">
+                              <p className="text-xs text-slate-500 font-medium">
                                 {r.room_number ? `Room ${r.room_number}` : 'No room assigned'}
                                 {getAge(r.dob) ? ` · ${getAge(r.dob)} yrs` : ''}
                               </p>
@@ -763,13 +882,13 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="lg:col-span-2 flex flex-col gap-4">
-                  <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm p-5 flex-1">
+                <div className="lg:col-span-2 flex flex-col gap-5">
+                  <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5 flex-1">
                     <div className="flex items-center gap-2.5 mb-4">
                       <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center">
                         <ShieldCheck className="w-4 h-4 text-blue-700" />
                       </div>
-                      <h2 className="font-black text-gray-900 text-sm">Staff snapshot</h2>
+                      <h2 className="font-bold text-slate-900 text-sm">Staff snapshot</h2>
                     </div>
                     <div className="space-y-2.5">
                       <StaffStatusBar label="Active" count={activeStaff} total={staffList.length} color="emerald" />
@@ -788,14 +907,15 @@ export default function AdminDashboard() {
 
                   <div
                     className="rounded-3xl p-5 shadow-lg shadow-emerald-200/30"
-                    style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                    style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}
                   >
-                    <p className="font-black text-white text-sm mb-3">Quick actions</p>
+                    <p className="font-bold text-white text-sm mb-3">Quick actions</p>
                     <div className="space-y-2">
                       {[
                         { label: 'Add resident', icon: Plus, action: openAddResident },
                         { label: 'View staff', icon: ClipboardList, action: () => setTab('staff') },
                         { label: 'Add contact', icon: UserCheck, action: () => { openAddContact(); setTab('family'); } },
+                        { label: 'Behavioral AI insights', icon: Bot, action: () => router.push('/admin/behavioral-trends') },
                       ].map(({ label, icon: Icon, action }) => (
                         <button
                           key={label}
@@ -818,8 +938,8 @@ export default function AdminDashboard() {
             <div className="max-w-6xl mx-auto">
               <div className="flex items-start justify-between mb-7 flex-wrap gap-4">
                 <div>
-                  <h1 className="text-2xl font-black text-gray-900 mb-1">Residents</h1>
-                  <p className="text-gray-600 text-sm font-medium">
+                  <h1 className="text-2xl font-bold text-slate-900 mb-1">Residents</h1>
+                  <p className="text-slate-600 text-sm font-medium">
                     {stats.totalResidents} total · {stats.activeResidents} active
                   </p>
                 </div>
@@ -834,7 +954,7 @@ export default function AdminDashboard() {
 
               <div className="flex items-center gap-3 mb-6 flex-wrap">
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
                   <input
                     value={residentSearch}
                     onChange={(e) => setResidentSearch(e.target.value)}
@@ -842,13 +962,13 @@ export default function AdminDashboard() {
                     className={INPUT_CLASS + ' pl-11'}
                   />
                 </div>
-                <div className="flex bg-gray-200/70 rounded-xl p-1">
+                <div className="flex bg-slate-200/70 rounded-xl p-1">
                   {(['grid', 'table'] as const).map((v) => (
                     <button
                       key={v}
                       onClick={() => setResidentView(v)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        residentView === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                        residentView === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       {v === 'grid' ? 'Grid' : 'Table'}
@@ -862,13 +982,13 @@ export default function AdminDashboard() {
               ) : filteredResidents.length === 0 ? (
                 <EmptyState icon={Users} message="No residents found." />
               ) : residentView === 'grid' ? (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   {filteredResidents.map((r) => {
                     const age = getAge(r.dob);
                     return (
                       <div
                         key={r.id}
-                        className="bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm hover:shadow-md p-5 flex flex-col justify-between transition-all duration-300 group"
+                        className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm hover:shadow-md p-5 flex flex-col justify-between transition-all duration-300 group"
                       >
                         <div>
                           <div className="flex items-start justify-between gap-3 mb-4">
@@ -879,10 +999,10 @@ export default function AdminDashboard() {
                                 {getInitials(r.full_name)}
                               </div>
                               <div>
-                                <h3 className="font-bold text-gray-900 text-base group-hover:text-emerald-700 transition-colors">
+                                <h3 className="font-bold text-slate-900 text-base group-hover:text-emerald-700 transition-colors">
                                   {r.full_name}
                                 </h3>
-                                <p className="text-xs font-medium text-gray-500">
+                                <p className="text-xs font-medium text-slate-500">
                                   {r.room_number ? `Room ${r.room_number}` : 'No room'}
                                   {age ? ` · ${age} yrs` : ''}
                                 </p>
@@ -891,7 +1011,7 @@ export default function AdminDashboard() {
                             <ResidentStatusBadge status={r.status} />
                           </div>
 
-                          <div className="space-y-2 mb-4 text-xs font-medium text-gray-700">
+                          <div className="space-y-2 mb-4 text-xs font-medium text-slate-700">
                             {r.medical_notes && (
                               <p className="bg-emerald-50 rounded-xl px-3 py-2 text-emerald-950 border border-emerald-200/60 line-clamp-2">
                                 <strong className="font-bold text-emerald-950">Medical:</strong> {r.medical_notes}
@@ -905,7 +1025,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                           <button
                             onClick={() => router.push(`/admin/residents/${r.id}`)}
                             className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
@@ -915,13 +1035,13 @@ export default function AdminDashboard() {
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => openEditResident(r)}
-                              className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteResident(r.id)}
-                              className="p-1.5 rounded-lg text-gray-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -932,9 +1052,9 @@ export default function AdminDashboard() {
                   })}
                 </div>
               ) : (
-                <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden">
-                  <table className="w-full text-left text-sm text-gray-700">
-                    <thead className="bg-gray-100/70 text-gray-700 font-bold text-xs uppercase tracking-wider border-b border-gray-200">
+                <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden">
+                  <table className="w-full text-left text-sm text-slate-700">
+                    <thead className="bg-slate-100/70 text-slate-700 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
                       <tr>
                         <th className="px-6 py-4">Resident</th>
                         <th className="px-6 py-4">Room</th>
@@ -943,10 +1063,10 @@ export default function AdminDashboard() {
                         <th className="px-6 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
                       {filteredResidents.map((r) => (
-                        <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 font-bold text-gray-900">{r.full_name}</td>
+                        <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-900">{r.full_name}</td>
                           <td className="px-6 py-4 font-medium">{r.room_number ? `Room ${r.room_number}` : 'Unassigned'}</td>
                           <td className="px-6 py-4 font-medium">{getAge(r.dob) ? `${getAge(r.dob)} yrs (${r.dob})` : r.dob || '—'}</td>
                           <td className="px-6 py-4"><ResidentStatusBadge status={r.status} /></td>
@@ -954,13 +1074,13 @@ export default function AdminDashboard() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => openEditResident(r)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteResident(r.id)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-rose-600 hover:bg-rose-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -980,8 +1100,8 @@ export default function AdminDashboard() {
             <div className="max-w-6xl mx-auto">
               <div className="flex items-start justify-between mb-7 flex-wrap gap-4">
                 <div>
-                  <h1 className="text-2xl font-black text-gray-900 mb-1">Family Contacts</h1>
-                  <p className="text-gray-600 text-sm font-medium">{stats.familyContacts} emergency contacts connected</p>
+                  <h1 className="text-2xl font-bold text-slate-900 mb-1">Family Contacts</h1>
+                  <p className="text-slate-600 text-sm font-medium">{stats.familyContacts} emergency contacts connected</p>
                 </div>
                 <button
                   onClick={() => openAddContact()}
@@ -994,7 +1114,7 @@ export default function AdminDashboard() {
 
               <div className="mb-6 max-w-sm">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
                   <input
                     value={contactSearch}
                     onChange={(e) => setContactSearch(e.target.value)}
@@ -1009,9 +1129,9 @@ export default function AdminDashboard() {
               ) : filteredContacts.length === 0 ? (
                 <EmptyState icon={UserCircle} message="No family contacts found." />
               ) : (
-                <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden">
-                  <table className="w-full text-left text-sm text-gray-700">
-                    <thead className="bg-gray-100/70 text-gray-700 font-bold text-xs uppercase tracking-wider border-b border-gray-200">
+                <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden">
+                  <table className="w-full text-left text-sm text-slate-700">
+                    <thead className="bg-slate-100/70 text-slate-700 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
                       <tr>
                         <th className="px-6 py-4">Contact Name</th>
                         <th className="px-6 py-4">Relationship</th>
@@ -1021,15 +1141,15 @@ export default function AdminDashboard() {
                         <th className="px-6 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
                       {filteredContacts.map((c) => (
-                        <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 font-bold text-gray-900">{c.full_name}</td>
+                        <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-900">{c.full_name}</td>
                           <td className="px-6 py-4 font-medium capitalize">{c.relationship || '—'}</td>
                           <td className="px-6 py-4 font-bold text-emerald-800">{c.resident_name}</td>
                           <td className="px-6 py-4">
-                            <div className="font-bold text-gray-900">{c.phone}</div>
-                            {c.email && <div className="text-xs text-gray-500 font-medium">{c.email}</div>}
+                            <div className="font-bold text-slate-900">{c.phone}</div>
+                            {c.email && <div className="text-xs text-slate-500 font-medium">{c.email}</div>}
                           </td>
                           <td className="px-6 py-4">
                             {c.is_primary ? (
@@ -1037,20 +1157,20 @@ export default function AdminDashboard() {
                                 Primary
                               </span>
                             ) : (
-                              <span className="text-gray-500 font-medium text-xs">Secondary</span>
+                              <span className="text-slate-500 font-medium text-xs">Secondary</span>
                             )}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => openEditContact(c)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteContact(c.id)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-rose-600 hover:bg-rose-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1068,16 +1188,25 @@ export default function AdminDashboard() {
           {/* ════ STAFF ═══════════════════════════════════════════════════════ */}
           {tab === 'staff' && (
             <div className="max-w-6xl mx-auto space-y-8">
-              <div>
-                <h1 className="text-2xl font-black text-gray-900 mb-1">Staff Management</h1>
-                <p className="text-gray-600 text-sm font-medium">{stats.totalStaff} staff members registered</p>
+              <div className="flex items-start justify-between flex-wrap gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900 mb-1">Staff Management</h1>
+                  <p className="text-slate-600 text-sm font-medium">{stats.totalStaff} staff members registered</p>
+                </div>
+                <button
+                  onClick={openAddStaff}
+                  className="flex items-center gap-2 text-white font-bold text-sm px-5 py-2.5 rounded-2xl shadow-lg shadow-emerald-200/50 hover:shadow-xl active:scale-95 transition-all duration-200"
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                >
+                  <Plus className="w-4 h-4" /> Add staff
+                </button>
               </div>
 
               {pendingStaff.length > 0 && (
                 <div className="bg-amber-50/90 backdrop-blur-sm border border-amber-300 rounded-3xl p-6 shadow-sm">
                   <div className="flex items-center gap-3 mb-4">
                     <Bell className="w-5 h-5 text-amber-600" />
-                    <h2 className="font-black text-amber-950 text-base">
+                    <h2 className="font-bold text-amber-950 text-base">
                       Pending Staff Details ({pendingStaff.length})
                     </h2>
                   </div>
@@ -1088,8 +1217,8 @@ export default function AdminDashboard() {
                         className="bg-white rounded-2xl p-4 border border-amber-200 shadow-sm flex items-center justify-between gap-3"
                       >
                         <div>
-                          <p className="font-bold text-gray-900 text-sm">{s.full_name}</p>
-                          <p className="text-xs text-gray-500 font-medium">{s.email}</p>
+                          <p className="font-bold text-slate-900 text-sm">{s.full_name}</p>
+                          <p className="text-xs text-slate-500 font-medium">{s.email}</p>
                         </div>
                         <button
                           onClick={() => openAssignStaff(s)}
@@ -1105,7 +1234,7 @@ export default function AdminDashboard() {
 
               <div className="max-w-sm">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
                   <input
                     value={staffSearch}
                     onChange={(e) => setStaffSearch(e.target.value)}
@@ -1120,9 +1249,9 @@ export default function AdminDashboard() {
               ) : filteredStaff.length === 0 ? (
                 <EmptyState icon={ClipboardList} message="No staff members with assigned details found." />
               ) : (
-                <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden">
-                  <table className="w-full text-left text-sm text-gray-700">
-                    <thead className="bg-gray-100/70 text-gray-700 font-bold text-xs uppercase tracking-wider border-b border-gray-200">
+                <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden">
+                  <table className="w-full text-left text-sm text-slate-700">
+                    <thead className="bg-slate-100/70 text-slate-700 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
                       <tr>
                         <th className="px-6 py-4">Staff Member</th>
                         <th className="px-6 py-4">Position / Dept</th>
@@ -1132,29 +1261,29 @@ export default function AdminDashboard() {
                         <th className="px-6 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100">
                       {filteredStaff.map((s) => (
-                        <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                        <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
-                              <p className="font-bold text-gray-900">{s.full_name}</p>
+                              <p className="font-bold text-slate-900">{s.full_name}</p>
                               {s.phone_verified && (
                                 <span title="Phone Verified" className="text-emerald-700">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500 font-medium">{s.email}</p>
-                            {s.phone_number && <p className="text-[11px] text-gray-500 font-medium">{s.phone_number}</p>}
+                            <p className="text-xs text-slate-500 font-medium">{s.email}</p>
+                            {s.phone_number && <p className="text-[11px] text-slate-500 font-medium">{s.phone_number}</p>}
                           </td>
                           <td className="px-6 py-4">
-                            <p className="font-bold text-gray-900">{s.position || '—'}</p>
-                            <p className="text-xs text-gray-500 font-medium">{s.department || '—'}</p>
+                            <p className="font-bold text-slate-900">{s.position || '—'}</p>
+                            <p className="text-xs text-slate-500 font-medium">{s.department || '—'}</p>
                           </td>
                           <td className="px-6 py-4 font-medium">
                             {s.room_no_assigned ? `Room ${s.room_no_assigned}` : 'Unassigned'}
                           </td>
-                          <td className="px-6 py-4 text-xs font-bold text-gray-800">
+                          <td className="px-6 py-4 text-xs font-bold text-slate-800">
                             {s.shift_start && s.shift_end
                               ? `${formatTime(s.shift_start)} - ${formatTime(s.shift_end)}`
                               : '—'}
@@ -1164,14 +1293,14 @@ export default function AdminDashboard() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => openEditStaff(s)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
                                 title="Edit staff details"
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteStaff(s.id)}
-                                className="p-1.5 rounded-lg text-gray-500 hover:text-rose-600 hover:bg-rose-50"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50"
                                 title="Delete staff member"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1193,18 +1322,18 @@ export default function AdminDashboard() {
       {/* ════ RESIDENT MODAL ══════════════════════════════════════════════════ */}
       {showResidentModal && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm transition-opacity duration-200 ${
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-200 ${
             residentModalClosing ? 'opacity-0' : 'opacity-100'
           }`}
         >
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-black text-gray-900">
+              <h2 className="text-xl font-bold text-slate-900">
                 {editingResidentId ? 'Edit Resident' : 'Add New Resident'}
               </h2>
               <button
                 onClick={closeResidentModal}
-                className="p-2 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1219,7 +1348,7 @@ export default function AdminDashboard() {
 
             <form onSubmit={handleSaveResident} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Full Name *</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Full Name *</label>
                 <input
                   required
                   value={residentForm.full_name}
@@ -1231,7 +1360,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Date of Birth</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Date of Birth</label>
                   <input
                     type="date"
                     value={residentForm.dob}
@@ -1240,7 +1369,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Room Number</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Room Number</label>
                   <input
                     value={residentForm.room_number}
                     onChange={(e) => setResidentForm({ ...residentForm, room_number: e.target.value })}
@@ -1251,20 +1380,19 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Status</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Status</label>
                 <select
                   value={residentForm.status}
                   onChange={(e) => setResidentForm({ ...residentForm, status: e.target.value as ResidentStatus })}
                   className={SELECT_CLASS}
                 >
-                  <option value="active" className="bg-white text-gray-900 font-medium py-1.5">Active</option>
-                  <option value="discharged" className="bg-white text-gray-900 font-medium py-1.5">Discharged</option>
-                  <option value="deceased" className="bg-white text-gray-900 font-medium py-1.5">Deceased</option>
+                  <option value="active" className="bg-white text-slate-900 font-medium py-1.5">Active</option>
+                  <option value="discharged" className="bg-white text-slate-900 font-medium py-1.5">Discharged</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Address / Prior Location</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Address / Prior Location</label>
                 <input
                   value={residentForm.address}
                   onChange={(e) => setResidentForm({ ...residentForm, address: e.target.value })}
@@ -1273,7 +1401,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Medical Notes</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Medical Notes</label>
                 <textarea
                   rows={2}
                   value={residentForm.medical_notes}
@@ -1284,7 +1412,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Dietary Needs</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Dietary Needs</label>
                 <textarea
                   rows={2}
                   value={residentForm.dietary_needs}
@@ -1294,11 +1422,11 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={closeResidentModal}
-                  className="px-5 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl"
+                  className="px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl"
                 >
                   Cancel
                 </button>
@@ -1319,18 +1447,18 @@ export default function AdminDashboard() {
       {/* ════ STAFF MODAL ══════════════════════════════════════════════════════ */}
       {showStaffModal && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm transition-opacity duration-200 ${
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-200 ${
             staffModalClosing ? 'opacity-0' : 'opacity-100'
           }`}
         >
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-black text-gray-900">
-                {isNewAssignment ? 'Assign Staff Details' : 'Edit Staff Details'}
+              <h2 className="text-xl font-bold text-slate-900">
+                {isNewStaffCreation ? 'Add New Staff Member' : isNewAssignment ? 'Assign Staff Details' : 'Edit Staff Details'}
               </h2>
               <button
                 onClick={closeStaffModal}
-                className="p-2 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1346,7 +1474,7 @@ export default function AdminDashboard() {
             <form onSubmit={handleSaveStaff} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Full Name</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Full Name *</label>
                   <input
                     required
                     value={staffForm.full_name}
@@ -1356,19 +1484,31 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Phone Number</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Email *</label>
                   <input
-                    value={staffForm.phone_number}
-                    onChange={(e) => setStaffForm({ ...staffForm, phone_number: e.target.value })}
+                    type="email"
+                    required
+                    value={staffForm.email}
+                    onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
                     className={INPUT_CLASS}
-                    placeholder="1234567890"
+                    placeholder="thomas@example.com"
                   />
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Phone Number</label>
+                <input
+                  value={staffForm.phone_number}
+                  onChange={(e) => setStaffForm({ ...staffForm, phone_number: e.target.value })}
+                  className={INPUT_CLASS}
+                  placeholder="1234567890"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Position</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Position</label>
                   <input
                     value={staffForm.position}
                     onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value })}
@@ -1377,7 +1517,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Department</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Department</label>
                   <input
                     value={staffForm.department}
                     onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })}
@@ -1389,7 +1529,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Room Assigned</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Room Assigned</label>
                   <input
                     value={staffForm.room_no_assigned}
                     onChange={(e) => setStaffForm({ ...staffForm, room_no_assigned: e.target.value })}
@@ -1398,7 +1538,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Shift Start</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Shift Start</label>
                   <input
                     type="time"
                     value={staffForm.shift_start}
@@ -1407,7 +1547,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Shift End</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Shift End</label>
                   <input
                     type="time"
                     value={staffForm.shift_end}
@@ -1419,15 +1559,15 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Status</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Status</label>
                   <select
                     value={staffForm.status}
                     onChange={(e) => setStaffForm({ ...staffForm, status: e.target.value as StaffStatus })}
                     className={SELECT_CLASS}
                   >
-                    <option value="active" className="bg-white text-gray-900 font-medium py-1.5">Active</option>
-                    <option value="on_leave" className="bg-white text-gray-900 font-medium py-1.5">On Leave</option>
-                    <option value="inactive" className="bg-white text-gray-900 font-medium py-1.5">Inactive</option>
+                    <option value="active" className="bg-white text-slate-900 font-medium py-1.5">Active</option>
+                    <option value="on_leave" className="bg-white text-slate-900 font-medium py-1.5">On Leave</option>
+                    <option value="inactive" className="bg-white text-slate-900 font-medium py-1.5">Inactive</option>
                   </select>
                 </div>
                 <div className="flex items-end pb-2">
@@ -1436,15 +1576,15 @@ export default function AdminDashboard() {
                       type="checkbox"
                       checked={staffForm.phone_verified}
                       onChange={(e) => setStaffForm({ ...staffForm, phone_verified: e.target.checked })}
-                      className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
                     />
-                    <span className="text-xs font-bold text-gray-900">Phone Verified</span>
+                    <span className="text-xs font-bold text-slate-900">Phone Verified</span>
                   </label>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Notes</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Notes</label>
                 <textarea
                   rows={2}
                   value={staffForm.notes}
@@ -1454,11 +1594,11 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={closeStaffModal}
-                  className="px-5 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl"
+                  className="px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl"
                 >
                   Cancel
                 </button>
@@ -1468,7 +1608,7 @@ export default function AdminDashboard() {
                   className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md flex items-center gap-2"
                 >
                   {staffSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save Staff Details
+                  {isNewStaffCreation ? 'Create Staff' : 'Save Staff Details'}
                 </button>
               </div>
             </form>
@@ -1479,18 +1619,18 @@ export default function AdminDashboard() {
       {/* ════ CONTACT MODAL ═══════════════════════════════════════════════════ */}
       {showContactModal && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm transition-opacity duration-200 ${
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-200 ${
             contactModalClosing ? 'opacity-0' : 'opacity-100'
           }`}
         >
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-black text-gray-900">
+              <h2 className="text-xl font-bold text-slate-900">
                 {editingContactId ? 'Edit Family Contact' : 'Add Emergency Contact'}
               </h2>
               <button
                 onClick={closeContactModal}
-                className="p-2 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1505,16 +1645,16 @@ export default function AdminDashboard() {
 
             <form onSubmit={handleSaveContact} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Select Resident *</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Select Resident *</label>
                 <select
                   required
                   value={contactForm.resident_id}
                   onChange={(e) => setContactForm({ ...contactForm, resident_id: e.target.value })}
                   className={SELECT_CLASS}
                 >
-                  <option value="" className="bg-white text-gray-900 font-medium py-1.5">-- Select Resident --</option>
+                  <option value="" className="bg-white text-slate-900 font-medium py-1.5">-- Select Resident --</option>
                   {residents.map((r) => (
-                    <option key={r.id} value={r.id} className="bg-white text-gray-900 font-medium py-1.5">
+                    <option key={r.id} value={r.id} className="bg-white text-slate-900 font-medium py-1.5">
                       {r.full_name} {r.room_number ? `(Room ${r.room_number})` : ''}
                     </option>
                   ))}
@@ -1522,7 +1662,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Contact Full Name *</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Contact Full Name *</label>
                 <input
                   required
                   value={contactForm.full_name}
@@ -1534,7 +1674,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Relationship</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Relationship</label>
                   <input
                     value={contactForm.relationship}
                     onChange={(e) => setContactForm({ ...contactForm, relationship: e.target.value })}
@@ -1543,7 +1683,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-900 mb-1">Phone Number *</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Phone Number *</label>
                   <input
                     required
                     value={contactForm.phone}
@@ -1554,7 +1694,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-900 mb-1">Email Address</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Email Address</label>
                 <input
                   type="email"
                   value={contactForm.email}
@@ -1569,18 +1709,18 @@ export default function AdminDashboard() {
                   id="is_primary"
                   checked={contactForm.is_primary}
                   onChange={(e) => setContactForm({ ...contactForm, is_primary: e.target.checked })}
-                  className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
+                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
                 />
-                <label htmlFor="is_primary" className="text-xs font-bold text-gray-900 cursor-pointer">
+                <label htmlFor="is_primary" className="text-xs font-bold text-slate-900 cursor-pointer">
                   Set as primary emergency contact
                 </label>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={closeContactModal}
-                  className="px-5 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl"
+                  className="px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl"
                 >
                   Cancel
                 </button>
@@ -1607,12 +1747,12 @@ function ResidentStatusBadge({ status }: { status?: string }) {
   const map: Record<string, { cls: string; label: string }> = {
     active: { cls: 'bg-emerald-100 text-emerald-900 border-emerald-300', label: 'Active' },
     discharged: { cls: 'bg-amber-100 text-amber-900 border-amber-300', label: 'Discharged' },
-    deceased: { cls: 'bg-gray-200 text-gray-800 border-gray-300', label: 'Deceased' },
+    deceased: { cls: 'bg-slate-200 text-slate-800 border-slate-300', label: 'Deceased' },
   };
 
   const normalized = (status || '').toLowerCase().trim();
   const badge = map[normalized] ?? {
-    cls: 'bg-gray-100 text-gray-800 border-gray-300',
+    cls: 'bg-slate-100 text-slate-800 border-slate-300',
     label: status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown',
   };
 
@@ -1632,7 +1772,7 @@ function StaffStatusBadge({ status }: { status?: string }) {
 
   const normalized = (status || '').toLowerCase().trim();
   const badge = map[normalized] ?? {
-    cls: 'bg-gray-100 text-gray-800 border-gray-300',
+    cls: 'bg-slate-100 text-slate-800 border-slate-300',
     label: status ? status.replace('_', ' ') : 'Unknown',
   };
 
@@ -1658,19 +1798,26 @@ function StatCard({
   color: string;
   delay: number;
 }) {
+  const COLOR_MAP: Record<string, string> = {
+    emerald: 'bg-emerald-100 text-emerald-700',
+    teal: 'bg-teal-100 text-teal-700',
+    blue: 'bg-blue-100 text-blue-700',
+    violet: 'bg-violet-100 text-violet-700',
+  };
+
   return (
     <div
-      className="bg-white/90 backdrop-blur-sm rounded-3xl p-5 border border-gray-200/80 shadow-sm animate-[fadeUp_0.4s_ease-out_backwards]"
+      className="bg-white/85 backdrop-blur-sm rounded-3xl p-5 border border-slate-200/70 shadow-sm hover:shadow-md transition-shadow duration-300 animate-[fadeUp_0.4s_ease-out_backwards]"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">{label}</span>
-        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">{label}</span>
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${COLOR_MAP[color] ?? 'bg-emerald-100 text-emerald-700'}`}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
-      <p className="text-2xl font-black text-gray-900">{value}</p>
-      <p className="text-xs font-semibold text-gray-500 mt-1">{sub}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="text-xs font-semibold text-slate-500 mt-1">{sub}</p>
     </div>
   );
 }
@@ -1690,13 +1837,13 @@ function StaffStatusBar({
   return (
     <div>
       <div className="flex justify-between text-xs font-bold mb-1">
-        <span className="text-gray-700">{label}</span>
-        <span className="text-gray-900 font-extrabold">{count} ({percent}%)</span>
+        <span className="text-slate-700">{label}</span>
+        <span className="text-slate-900 font-extrabold">{count} ({percent}%)</span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
         <div
           className={`h-full rounded-full ${
-            color === 'emerald' ? 'bg-emerald-600' : color === 'amber' ? 'bg-amber-500' : 'bg-gray-500'
+            color === 'emerald' ? 'bg-emerald-600' : color === 'amber' ? 'bg-amber-500' : 'bg-slate-500'
           }`}
           style={{ width: `${percent}%` }}
         />
@@ -1708,10 +1855,10 @@ function StaffStatusBar({
 function EmptyState({ icon: Icon, message }: { icon: typeof Users; message: string }) {
   return (
     <div className="py-12 text-center">
-      <div className="w-12 h-12 rounded-2xl bg-gray-200/80 text-gray-500 flex items-center justify-center mx-auto mb-3">
+      <div className="w-12 h-12 rounded-2xl bg-slate-200/80 text-slate-500 flex items-center justify-center mx-auto mb-3">
         <Icon className="w-6 h-6" />
       </div>
-      <p className="text-sm font-bold text-gray-600">{message}</p>
+      <p className="text-sm font-bold text-slate-600">{message}</p>
     </div>
   );
 }
@@ -1720,7 +1867,7 @@ function LoadingState() {
   return (
     <div className="py-20 text-center flex flex-col items-center justify-center gap-2">
       <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-      <p className="text-xs font-bold text-gray-500">Loading data...</p>
+      <p className="text-xs font-bold text-slate-500">Loading data...</p>
     </div>
   );
 }
