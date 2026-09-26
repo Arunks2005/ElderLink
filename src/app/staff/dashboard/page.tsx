@@ -27,6 +27,7 @@ import SOSModal from "../../../components/SOSModal";
 import ResidentQuickView from "../../../components/ResidentQuickView";
 import EndOfShiftModal from "../../../components/EndOfShiftModal";
 import BehaviorAlertsSummaryCard from "../../../components/BehaviorAlertsSummaryCard";
+import LiveAlerts from "../../../components/LiveAlerts";
 
 type Resident = {
   id: string;
@@ -306,6 +307,13 @@ export default function StaffDashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {/* LIVE EMERGENCY ALERTS
+            Uses the shared LiveAlerts component from the teammate dashboard.
+            It subscribes to the same Supabase emergency/fall alert stream, so
+            this staff dashboard gets the same live feed without duplicating
+            the emergency-system logic here. */}
+        <LiveAlerts />
+
         {/* SHIFT SUMMARY HERO GRID */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Main Shift Tracker */}
