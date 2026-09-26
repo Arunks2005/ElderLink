@@ -14,7 +14,9 @@ const twilioClient = twilio(
 
 export async function POST(req: NextRequest) {
   try {
-    const { residentId, alertType } = await req.json();
+    const { residentId, alertType, channels } = await req.json();
+    const requestedChannels: string[] =
+      Array.isArray(channels) && channels.length > 0 ? channels : ["sms"];
 
     if (!residentId || !alertType) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
@@ -56,29 +58,71 @@ export async function POST(req: NextRequest) {
       `ElderLink Alert: Hi ${primary.full_name}, ${resident.full_name} has had a ${alertType} at ${time}. ` +
       `Our care team is with them. Please call ${process.env.CARE_HOME_PHONE}. - ${process.env.CARE_HOME_NAME}`;
 
-    let smsSent = false;
+    const sentChannels: string[] = [];
+    const failedChannels: string[] = [];
 
-    try {
-      await twilioClient.messages.create({
-        body: message,
-        from: process.env.TWILIO_PHONE_NUMBER!,
-        to: primary.phone,
-      });
-      smsSent = true;
-    } catch (e) {
-      console.error("SMS failed:", e);
+    // SMS
+    if (requestedChannels.includes("sms")) {
+      try {
+        await twilioClient.messages.create({
+          body: message,
+          from: process.env.TWILIO_PHONE_NUMBER!,
+          to: primary.phone,
+        });
+        sentChannels.push("sms");
+      } catch (e) {
+        console.error("SMS failed:", e);
+        failedChannels.push("sms");
+      }
+    }
+
+    // WhatsApp — trial accounts require the recipient to have joined the
+    // Twilio sandbox first (by sending the join code to the sandbox number).
+    // Requires TWILIO_WHATSAPP_NUMBER, e.g. "whatsapp:+14155238886".
+    if (requestedChannels.includes("whatsapp")) {
+      try {
+        if (!process.env.TWILIO_WHATSAPP_NUMBER) {
+          throw new Error("TWILIO_WHATSAPP_NUMBER is not configured");
+        }
+        await twilioClient.messages.create({
+          body: message,
+          from: process.env.TWILIO_WHATSAPP_NUMBER,
+          to: `whatsapp:${primary.phone}`,
+        });
+        sentChannels.push("whatsapp");
+      } catch (e) {
+        console.error("WhatsApp failed:", e);
+        failedChannels.push("whatsapp");
+      }
+    }
+
+    // Voice call — reads the same message aloud via TwiML <Say>.
+    if (requestedChannels.includes("voice")) {
+      try {
+        const twiml = `<Response><Say voice="alice">${escapeXml(message)}</Say></Response>`;
+        await twilioClient.calls.create({
+          twiml,
+          from: process.env.TWILIO_PHONE_NUMBER!,
+          to: primary.phone,
+        });
+        sentChannels.push("voice");
+      } catch (e) {
+        console.error("Voice call failed:", e);
+        failedChannels.push("voice");
+      }
     }
 
     await supabase.from("emergency_alerts").insert({
       resident_id: residentId,
       alert_type: alertType,
-      sms_sent: smsSent,
+      sms_sent: sentChannels.includes("sms"),
       resolved: false,
     });
 
     return NextResponse.json({
       success: true,
-      smsSent,
+      sentChannels,
+      failedChannels,
       primaryContact: {
         full_name: primary.full_name,
         phone: primary.phone,
@@ -88,4 +132,13 @@ export async function POST(req: NextRequest) {
     console.error("Alert error:", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+}
+
+function escapeXml(str: string) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
