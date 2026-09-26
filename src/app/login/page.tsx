@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, HeartHandshake } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -23,8 +23,28 @@ function friendlyAuthError(message: string): string {
   return message;
 }
 
+// Maps the `?error=` code that /auth/callback redirects back with (after a
+// Google sign-in that couldn't be completed) to copy a person can act on.
+const CALLBACK_ERROR_MESSAGES: Record<string, string> = {
+  missing_code: 'Something went wrong signing in with Google. Please try again.',
+  auth_failed: 'Something went wrong signing in with Google. Please try again.',
+  no_account: 'No ElderLink account found for that Google login. Please sign up first.',
+  account_setup_failed:
+    'We could not finish setting up your account. Please try again or contact support.',
+};
+
 export default function LoginPage() {
+  // useSearchParams() requires a Suspense boundary above it in the app router.
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,7 +56,18 @@ export default function LoginPage() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+
+    // Surface any error /auth/callback redirected back with (e.g. a Google
+    // sign-in that had no matching admin/staff account) instead of leaving
+    // the person on a blank login page wondering what happened.
+    const callbackError = searchParams.get('error');
+    if (callbackError) {
+      setError(
+        CALLBACK_ERROR_MESSAGES[callbackError] ??
+          'Something went wrong signing in with Google. Please try again.'
+      );
+    }
+  }, [searchParams]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -129,8 +160,11 @@ export default function LoginPage() {
         setGoogleLoading(false);
       }
       // On success, the browser redirects away — no need to reset loading here.
-      // Note: your /auth/callback route needs the same admin/staff lookup
-      // logic above to decide where to send Google-authenticated users.
+      // /auth/callback does the same admin/staff lookup as handleLogin above
+      // and redirects to the right dashboard, or back here with ?error=... if
+      // this Google account has no matching admin/staff row (see that route
+      // for details — it only auto-creates a row for a Google *signup*, not
+      // a plain Google *login*, since a login has no role to assign).
     } catch (err) {
       console.error('Google login failed:', err);
       setError(getErrorMessage(err));

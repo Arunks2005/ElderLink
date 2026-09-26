@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -30,9 +30,10 @@ import {
   Star,
   AlertCircle,
   CheckCircle2,
-  UserCheck,
   Bot,
   Sparkles,
+  Upload,
+  FileText,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -50,6 +51,8 @@ interface Resident {
   photo_url: string | null;
   medical_notes: string | null;
   dietary_needs: string | null;
+  medical_report_path: string | null;
+  medical_report_name: string | null;
   status: ResidentStatus;
   created_at: string;
 }
@@ -68,6 +71,7 @@ interface StaffDetails {
   shift_start: string | null;
   shift_end: string | null;
   position: string | null;
+  role_id: string | null;
   department: string | null;
   status: StaffStatus;
   phone_verified: boolean;
@@ -85,6 +89,12 @@ interface FamilyContact {
   email: string | null;
   is_primary: boolean;
   resident_name?: string;
+}
+
+interface Role {
+  id: string;
+  name: string;
+  created_at: string;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -105,15 +115,14 @@ const emptyStaffForm = {
   room_no_assigned: '',
   shift_start: '',
   shift_end: '',
-  position: '',
+  role_id: '',
   department: '',
   status: 'active' as StaffStatus,
   phone_verified: false,
   notes: '',
 };
 
-const emptyContactForm = {
-  resident_id: '',
+const emptyResidentFamilyForm = {
   full_name: '',
   relationship: '',
   phone: '',
@@ -127,6 +136,23 @@ const NAV_ITEMS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: s
   { id: 'family', label: 'Family', icon: UserCircle, desc: 'Emergency contacts' },
   { id: 'staff', label: 'Staff', icon: ClipboardList, desc: 'Team management' },
 ];
+
+// The chatbot is always launched with ?new=1 so every entry point starts
+// a fresh conversation instead of resuming whatever was last open.
+const BEHAVIORAL_AI_NEW_CHAT_PATH = '/admin/behavioral-trends?new=1';
+
+// Rotating tips shown in the floating assistant's speech bubble.
+const AI_TIPS = [
+  'Ask me: "How is everyone doing today?"',
+  'Try: "Summarize this week\'s care logs"',
+  'Ask: "Any residents I should check on?"',
+  'Attach a document and I can turn it into a presentation.',
+  "I'm not just for resident data — ask me anything.",
+];
+
+// Accepted file types for medical report uploads.
+const MEDICAL_REPORT_ACCEPT = '.pdf,.doc,.docx,.png,.jpg,.jpeg,.heic';
+const MEDICAL_REPORTS_BUCKET = 'medical-reports';
 
 // Reusable input field classes to guarantee visible fonts across all browsers/themes
 const INPUT_CLASS =
@@ -173,6 +199,28 @@ function getAvatarColor(id: string) {
   return AVATAR_COLORS[code % AVATAR_COLORS.length];
 }
 
+// Groups residents by created_at into the last 7 calendar days, oldest
+// first — feeds the "New residents" mini bar chart on the overview tab.
+function computeNewResidentsLast7Days(residents: Resident[]) {
+  const days: Date[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    days.push(d);
+  }
+  const counts = days.map((day) => {
+    const next = new Date(day);
+    next.setDate(day.getDate() + 1);
+    return residents.filter((r) => {
+      const created = new Date(r.created_at);
+      return created >= day && created < next;
+    }).length;
+  });
+  const labels = days.map((d) => d.toLocaleDateString('en-US', { weekday: 'short' }));
+  return { labels, counts };
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const router = useRouter();
@@ -193,6 +241,15 @@ export default function AdminDashboard() {
   const [residentError, setResidentError] = useState('');
   const [residentView, setResidentView] = useState<'grid' | 'table'>('grid');
 
+  // Medical report file upload state — kept separate from residentForm
+  // since it's a File object, not a plain text field that maps 1:1 to a
+  // column, and needs its own "existing file" / "remove" bookkeeping.
+  const [residentFile, setResidentFile] = useState<File | null>(null);
+  const [existingReportPath, setExistingReportPath] = useState<string | null>(null);
+  const [existingReportName, setExistingReportName] = useState<string | null>(null);
+  const [removeExistingReport, setRemoveExistingReport] = useState(false);
+  const [reportOpening, setReportOpening] = useState<string | null>(null);
+
   // Staff state
   const [staffList, setStaffList] = useState<(StaffMember & StaffDetails)[]>([]);
   const [pendingStaff, setPendingStaff] = useState<StaffMember[]>([]);
@@ -207,16 +264,24 @@ export default function AdminDashboard() {
   const [staffSaving, setStaffSaving] = useState(false);
   const [staffError, setStaffError] = useState('');
 
+  // Roles state — backs the staff "Position" dropdown. Admins manage this
+  // list from the Staff tab; staff assignment just picks from it.
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [addingRole, setAddingRole] = useState(false);
+  const [roleError, setRoleError] = useState('');
+
   // Family contacts state
   const [contacts, setContacts] = useState<FamilyContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(true);
   const [contactSearch, setContactSearch] = useState('');
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [contactModalClosing, setContactModalClosing] = useState(false);
-  const [editingContactId, setEditingContactId] = useState<string | null>(null);
-  const [contactForm, setContactForm] = useState(emptyContactForm);
-  const [contactSaving, setContactSaving] = useState(false);
-  const [contactError, setContactError] = useState('');
+
+  // Family details are entered directly inside the Add/Edit Resident form.
+  // residentFamilyContactId tracks the existing linked contact when a resident
+  // is edited, so the same single form can update both database tables.
+  const [residentFamilyForm, setResidentFamilyForm] = useState(emptyResidentFamilyForm);
+  const [residentFamilyContactId, setResidentFamilyContactId] = useState<string | null>(null);
 
   // Stats
   const [stats, setStats] = useState({
@@ -229,6 +294,22 @@ export default function AdminDashboard() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // ── Sign-out safety net against the browser back/forward cache ────────────
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session) {
+            router.replace('/login');
+          }
+        });
+      }
+    }
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [supabase, router]);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const fetchResidents = useCallback(async () => {
@@ -276,6 +357,13 @@ export default function AdminDashboard() {
     setStaffLoading(false);
   }, [supabase]);
 
+  const fetchRoles = useCallback(async () => {
+    setRolesLoading(true);
+    const { data } = await supabase.from('roles').select('*').order('name');
+    setRoles((data as Role[]) || []);
+    setRolesLoading(false);
+  }, [supabase]);
+
   const fetchContacts = useCallback(async () => {
     setContactsLoading(true);
     const { data } = await supabase
@@ -308,20 +396,109 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchResidents();
     fetchStaff();
+    fetchRoles();
     fetchContacts();
     fetchStats();
-  }, [fetchResidents, fetchStaff, fetchContacts, fetchStats]);
+  }, [fetchResidents, fetchStaff, fetchRoles, fetchContacts, fetchStats]);
+
+  // ── Derived chart data ──────────────────────────────────────────────────────
+  const residentStatusData = useMemo(() => {
+    const counts: Record<ResidentStatus, number> = { active: 0, discharged: 0, deceased: 0 };
+    residents.forEach((r) => {
+      if (r.status in counts) counts[r.status]++;
+    });
+    return [
+      { label: 'Active', value: counts.active, color: '#10b981' },
+      { label: 'Discharged', value: counts.discharged, color: '#f59e0b' },
+      { label: 'Deceased', value: counts.deceased, color: '#94a3b8' },
+    ];
+  }, [residents]);
+
+  const staffStatusData = useMemo(
+    () => [
+      { label: 'Active', value: staffList.filter((s) => s.status === 'active').length, color: '#10b981' },
+      { label: 'On leave', value: staffList.filter((s) => s.status === 'on_leave').length, color: '#f59e0b' },
+      { label: 'Inactive', value: staffList.filter((s) => s.status === 'inactive').length, color: '#94a3b8' },
+    ],
+    [staffList]
+  );
+
+  const newResidentsChart = useMemo(() => computeNewResidentsLast7Days(residents), [residents]);
+
+  // Room numbers are sourced directly from residents.room_number.
+  // Duplicate room numbers are collapsed so each room appears only once
+  // in the staff assignment dropdown. Multiple staff can select the same
+  // room; their shift_start / shift_end values determine the coverage.
+  const roomOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        residents
+          .map((r) => r.room_number?.trim())
+          .filter((room): room is string => Boolean(room))
+      )
+    ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [residents]);
+
+  // Looks up a role's display name by id, for populating the legacy
+  // denormalized `position` text column when saving staff details.
+  function getRoleName(roleId: string | null | undefined) {
+    if (!roleId) return null;
+    return roles.find((r) => r.id === roleId)?.name ?? null;
+  }
 
   // ── Resident helpers ───────────────────────────────────────────────────────
+  function resetResidentFamilyForm() {
+    setResidentFamilyForm({ ...emptyResidentFamilyForm });
+    setResidentFamilyContactId(null);
+  }
+
+  async function loadResidentFamilyContact(residentId: string) {
+    const { data, error } = await supabase
+      .from('family_contacts')
+      .select('*')
+      .eq('resident_id', residentId)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (error) {
+      console.error('Error loading resident family contact:', error);
+      setResidentFamilyForm({ ...emptyResidentFamilyForm });
+      setResidentFamilyContactId(null);
+      return;
+    }
+
+    const contact = data?.[0] as FamilyContact | undefined;
+    if (!contact) {
+      setResidentFamilyForm({ ...emptyResidentFamilyForm });
+      setResidentFamilyContactId(null);
+      return;
+    }
+
+    setResidentFamilyContactId(contact.id);
+    setResidentFamilyForm({
+      full_name: contact.full_name ?? '',
+      relationship: contact.relationship ?? '',
+      phone: contact.phone ?? '',
+      email: contact.email ?? '',
+      is_primary: Boolean(contact.is_primary),
+    });
+  }
+
   function openAddResident() {
     setEditingResidentId(null);
     setResidentForm(emptyResidentForm);
     setResidentError('');
     setResidentModalClosing(false);
+    setResidentFile(null);
+    setExistingReportPath(null);
+    setExistingReportName(null);
+    setRemoveExistingReport(false);
+    resetResidentFamilyForm();
     setShowResidentModal(true);
   }
 
-  function openEditResident(r: Resident) {
+  async function openEditResident(r: Resident) {
     setEditingResidentId(r.id);
     setResidentForm({
       full_name: r.full_name,
@@ -334,7 +511,25 @@ export default function AdminDashboard() {
     });
     setResidentError('');
     setResidentModalClosing(false);
+    setResidentFile(null);
+    setExistingReportPath(r.medical_report_path ?? null);
+    setExistingReportName(r.medical_report_name ?? null);
+    setRemoveExistingReport(false);
+    resetResidentFamilyForm();
+
+    // Load the existing linked family contact into the same form.
+    await loadResidentFamilyContact(r.id);
     setShowResidentModal(true);
+  }
+
+  async function openEditResidentFromFamily(c: FamilyContact) {
+    const resident = residents.find((r) => r.id === c.resident_id);
+    if (!resident) {
+      alert('The resident linked to this family contact could not be found.');
+      return;
+    }
+    setTab('residents');
+    await openEditResident(resident);
   }
 
   function closeResidentModal() {
@@ -342,6 +537,11 @@ export default function AdminDashboard() {
     setTimeout(() => {
       setShowResidentModal(false);
       setResidentModalClosing(false);
+      setResidentFile(null);
+      setExistingReportPath(null);
+      setExistingReportName(null);
+      setRemoveExistingReport(false);
+      resetResidentFamilyForm();
     }, 200);
   }
 
@@ -349,8 +549,28 @@ export default function AdminDashboard() {
     e.preventDefault();
     setResidentSaving(true);
     setResidentError('');
-    const payload = {
-      full_name: residentForm.full_name,
+
+    const familyName = residentFamilyForm.full_name.trim();
+    const familyPhone = residentFamilyForm.phone.trim();
+    const hasAnyFamilyDetails = Boolean(
+      familyName ||
+        familyPhone ||
+        residentFamilyForm.relationship.trim() ||
+        residentFamilyForm.email.trim() ||
+        residentFamilyForm.is_primary
+    );
+
+    // Keep the same required fields as the original family-contact form when
+    // any family information is being entered. This also allows a resident to
+    // be saved without a contact when no family information is provided.
+    if (hasAnyFamilyDetails && (!familyName || !familyPhone)) {
+      setResidentSaving(false);
+      setResidentError('For a family contact, Contact Full Name and Phone Number are required.');
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      full_name: residentForm.full_name.trim(),
       dob: residentForm.dob || null,
       address: residentForm.address || null,
       room_number: residentForm.room_number || null,
@@ -358,16 +578,106 @@ export default function AdminDashboard() {
       dietary_needs: residentForm.dietary_needs || null,
       status: residentForm.status,
     };
-    const { error } = editingResidentId
-      ? await supabase.from('residents').update(payload).eq('id', editingResidentId)
-      : await supabase.from('residents').insert(payload);
-    setResidentSaving(false);
-    if (error) {
-      setResidentError(error.message);
+
+    if (removeExistingReport && !residentFile) {
+      payload.medical_report_path = null;
+      payload.medical_report_name = null;
+    }
+
+    const { data: savedResident, error } = editingResidentId
+      ? await supabase.from('residents').update(payload).eq('id', editingResidentId).select().single()
+      : await supabase.from('residents').insert(payload).select().single();
+
+    if (error || !savedResident) {
+      setResidentSaving(false);
+      setResidentError(error?.message ?? 'Could not save resident.');
       return;
     }
+
+    if (residentFile) {
+      const safeName = residentFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const storagePath = `${savedResident.id}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(MEDICAL_REPORTS_BUCKET)
+        .upload(storagePath, residentFile, { upsert: true });
+
+      if (uploadError) {
+        setResidentSaving(false);
+        setResidentError(`Resident saved, but the file upload failed: ${uploadError.message}`);
+        fetchResidents();
+        return;
+      }
+
+      const { error: linkError } = await supabase
+        .from('residents')
+        .update({ medical_report_path: storagePath, medical_report_name: residentFile.name })
+        .eq('id', savedResident.id);
+
+      if (linkError) {
+        setResidentSaving(false);
+        setResidentError(`File uploaded, but linking it to the resident failed: ${linkError.message}`);
+        fetchResidents();
+        return;
+      }
+    }
+
+    // Save the family contact only from this combined Resident form.
+    if (hasAnyFamilyDetails) {
+      const familyPayload = {
+        resident_id: savedResident.id,
+        full_name: familyName,
+        relationship: residentFamilyForm.relationship.trim() || null,
+        phone: familyPhone,
+        email: residentFamilyForm.email.trim() || null,
+        is_primary: residentFamilyForm.is_primary,
+      };
+
+      // Keep one primary contact for a resident when the checkbox is selected.
+      if (familyPayload.is_primary) {
+        const primaryQuery = supabase
+          .from('family_contacts')
+          .update({ is_primary: false })
+          .eq('resident_id', savedResident.id);
+
+        if (residentFamilyContactId) {
+          primaryQuery.neq('id', residentFamilyContactId);
+        }
+
+        const { error: primaryError } = await primaryQuery;
+        if (primaryError) {
+          setResidentSaving(false);
+          setResidentError(`Resident saved, but the family contact could not be updated: ${primaryError.message}`);
+          fetchResidents();
+          fetchContacts();
+          fetchStats();
+          return;
+        }
+      }
+
+      const contactResult = residentFamilyContactId
+        ? await supabase
+            .from('family_contacts')
+            .update(familyPayload)
+            .eq('id', residentFamilyContactId)
+        : await supabase.from('family_contacts').insert(familyPayload);
+
+      if (contactResult.error) {
+        setResidentSaving(false);
+        setResidentError(
+          `Resident saved, but the family contact could not be saved: ${contactResult.error.message}`
+        );
+        fetchResidents();
+        fetchContacts();
+        fetchStats();
+        return;
+      }
+    }
+
+    setResidentSaving(false);
     closeResidentModal();
     fetchResidents();
+    fetchContacts();
     fetchStats();
   }
 
@@ -375,7 +685,22 @@ export default function AdminDashboard() {
     if (!confirm('Remove this resident? This cannot be undone.')) return;
     await supabase.from('residents').delete().eq('id', id);
     fetchResidents();
+    fetchContacts();
     fetchStats();
+  }
+
+  async function handleViewReport(path: string) {
+    setReportOpening(path);
+    const { data, error } = await supabase.storage
+      .from(MEDICAL_REPORTS_BUCKET)
+      .createSignedUrl(path, 60);
+    setReportOpening(null);
+
+    if (error || !data?.signedUrl) {
+      alert('Could not open the medical report. Please try again.');
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   }
 
   // ── Staff helpers ──────────────────────────────────────────────────────────
@@ -415,7 +740,7 @@ export default function AdminDashboard() {
       room_no_assigned: s.room_no_assigned ?? '',
       shift_start: s.shift_start ?? '',
       shift_end: s.shift_end ?? '',
-      position: s.position ?? '',
+      role_id: s.role_id ?? '',
       department: s.department ?? '',
       status: s.status || 'active',
       phone_verified: s.phone_verified ?? false,
@@ -447,7 +772,6 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Insert new staff member
       const { data: staffData, error: staffErr } = await supabase
         .from('staff')
         .insert({
@@ -466,13 +790,25 @@ export default function AdminDashboard() {
 
       const staffId = staffData.id;
 
-      // Insert staff details
+      // Room assignments must come from residents.room_number.
+      // Multiple staff may use the same room as long as their shifts
+      // are recorded separately.
+      if (staffForm.room_no_assigned && !roomOptions.includes(staffForm.room_no_assigned)) {
+        setStaffError('Please select a valid room from the residents room list.');
+        setStaffSaving(false);
+        return;
+      }
+
+      // Insert staff details. role_id is the real FK to `roles`; position
+      // stays as a denormalized copy of the role's name for anything that
+      // still reads/searches it as plain text.
       const detailsPayload = {
         id: staffId,
         room_no_assigned: staffForm.room_no_assigned || null,
         shift_start: staffForm.shift_start || null,
         shift_end: staffForm.shift_end || null,
-        position: staffForm.position || null,
+        role_id: staffForm.role_id || null,
+        position: getRoleName(staffForm.role_id),
         department: staffForm.department || null,
         status: staffForm.status,
         phone_verified: staffForm.phone_verified,
@@ -505,6 +841,15 @@ export default function AdminDashboard() {
       return;
     }
 
+    // Room assignments must come from residents.room_number.
+    // This prevents manually entered room numbers that do not exist in
+    // the residents table.
+    if (staffForm.room_no_assigned && !roomOptions.includes(staffForm.room_no_assigned)) {
+      setStaffError('Please select a valid room from the residents room list.');
+      setStaffSaving(false);
+      return;
+    }
+
     const { error: staffErr } = await supabase
       .from('staff')
       .update({
@@ -525,7 +870,8 @@ export default function AdminDashboard() {
       room_no_assigned: staffForm.room_no_assigned || null,
       shift_start: staffForm.shift_start || null,
       shift_end: staffForm.shift_end || null,
-      position: staffForm.position || null,
+      role_id: staffForm.role_id || null,
+      position: getRoleName(staffForm.role_id),
       department: staffForm.department || null,
       status: staffForm.status,
       phone_verified: staffForm.phone_verified,
@@ -556,68 +902,38 @@ export default function AdminDashboard() {
     fetchStats();
   }
 
-  // ── Contact helpers ────────────────────────────────────────────────────────
-  function openAddContact(residentId?: string) {
-    setEditingContactId(null);
-    setContactForm({ ...emptyContactForm, resident_id: residentId ?? '' });
-    setContactError('');
-    setContactModalClosing(false);
-    setShowContactModal(true);
-  }
-
-  function openEditContact(c: FamilyContact) {
-    setEditingContactId(c.id);
-    setContactForm({
-      resident_id: c.resident_id,
-      full_name: c.full_name,
-      relationship: c.relationship ?? '',
-      phone: c.phone,
-      email: c.email ?? '',
-      is_primary: c.is_primary,
-    });
-    setContactError('');
-    setContactModalClosing(false);
-    setShowContactModal(true);
-  }
-
-  function closeContactModal() {
-    setContactModalClosing(true);
-    setTimeout(() => {
-      setShowContactModal(false);
-      setContactModalClosing(false);
-    }, 200);
-  }
-
-  async function handleSaveContact(e: React.FormEvent) {
-    e.preventDefault();
-    setContactSaving(true);
-    setContactError('');
-    if (!contactForm.resident_id || !contactForm.phone) {
-      setContactError('Resident and phone number are required.');
-      setContactSaving(false);
-      return;
-    }
-    const payload = {
-      resident_id: contactForm.resident_id,
-      full_name: contactForm.full_name,
-      relationship: contactForm.relationship || null,
-      phone: contactForm.phone,
-      email: contactForm.email || null,
-      is_primary: contactForm.is_primary,
-    };
-    const { error } = editingContactId
-      ? await supabase.from('family_contacts').update(payload).eq('id', editingContactId)
-      : await supabase.from('family_contacts').insert(payload);
-    setContactSaving(false);
+  // ── Role helpers ───────────────────────────────────────────────────────────
+  // Roles are managed from the Staff tab (see the "Staff Roles" card) so
+  // admins can add or remove them without leaving the page, and the
+  // staff-assignment modal's Position dropdown just reads from this list.
+  async function handleAddRole(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setAddingRole(true);
+    setRoleError('');
+    const { error } = await supabase.from('roles').insert({ name: trimmed });
+    setAddingRole(false);
     if (error) {
-      setContactError(error.message);
+      setRoleError(error.message);
       return;
     }
-    closeContactModal();
-    fetchContacts();
-    fetchStats();
+    setNewRoleName('');
+    fetchRoles();
   }
 
+  async function handleDeleteRole(id: string) {
+    if (
+      !confirm(
+        'Delete this role? Staff currently assigned this role will show no role until reassigned.'
+      )
+    )
+      return;
+    await supabase.from('roles').delete().eq('id', id);
+    fetchRoles();
+    fetchStaff();
+  }
+
+  // ── Family contact helpers ─────────────────────────────────────────────────
   async function handleDeleteContact(id: string) {
     if (!confirm('Remove this contact?')) return;
     await supabase.from('family_contacts').delete().eq('id', id);
@@ -653,18 +969,17 @@ export default function AdminDashboard() {
 
   return (
     <div
-      className="min-h-screen flex font-sans antialiased text-slate-900"
+      className="h-screen overflow-hidden flex font-sans antialiased text-slate-900"
       style={{ background: 'linear-gradient(135deg, #eef3f1 0%, #f4f7f6 45%, #eaf2ee 100%)' }}
     >
       {/* ── SIDEBAR ──────────────────────────────────────────────────────────── */}
       <aside
-        className={`w-72 shrink-0 flex flex-col border-r border-emerald-100/60 transition-all duration-500 ease-out ${
+        className={`w-72 shrink-0 h-full flex flex-col border-r border-emerald-100/60 transition-all duration-500 ease-out ${
           mounted ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-6'
         }`}
         style={{ background: 'linear-gradient(180deg, #fbfdfc 0%, #eef3f1 100%)' }}
       >
-        {/* Brand */}
-        <div className="px-6 pt-7 pb-6 border-b border-emerald-100/60">
+        <div className="px-6 pt-7 pb-6 border-b border-emerald-100/60 shrink-0">
           <div className="flex items-center gap-3">
             <div
               className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200/60 hover:scale-110 hover:rotate-6 transition-transform duration-300"
@@ -681,8 +996,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-4 py-5 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-1">
           {NAV_ITEMS.map(({ id, label, icon: Icon, desc }) => {
             const active = tab === id;
             return (
@@ -728,41 +1042,9 @@ export default function AdminDashboard() {
               </button>
             );
           })}
-
-          {/* AI Behavioral Insights — separate route, distinct styling */}
-          <div className="pt-3 mt-3 border-t border-emerald-100/70">
-            <p className="px-4 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              AI Tools
-            </p>
-            <button
-              onClick={() => router.push('/admin/behavioral-trends')}
-              className="relative w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-left transition-all duration-200 group text-slate-700 hover:text-white overflow-hidden"
-              style={{ background: 'transparent' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1, #7c3aed)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 group-hover:bg-white/20 transition-all duration-200">
-                <Bot className="w-4 h-4 text-indigo-600 group-hover:text-white transition-colors" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold flex items-center gap-1.5 text-slate-900 group-hover:text-white">
-                  Behavioral AI
-                  <Sparkles className="w-3 h-3 text-indigo-500 group-hover:text-white" />
-                </p>
-                <p className="text-[10px] truncate text-slate-500 group-hover:text-white/80">
-                  Trend insights via Groq
-                </p>
-              </div>
-            </button>
-          </div>
         </nav>
 
-        {/* Sign out */}
-        <div className="px-4 pb-6">
+        <div className="px-4 pb-6 shrink-0">
           <button
             onClick={handleSignOut}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all duration-200 group"
@@ -776,28 +1058,18 @@ export default function AdminDashboard() {
       </aside>
 
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 h-full overflow-y-auto">
         <div key={tab} className="min-h-full p-8 xl:p-10 animate-[fadeUp_0.4s_ease-out]">
 
           {/* ════ OVERVIEW ════════════════════════════════════════════════════ */}
           {tab === 'overview' && (
             <div className="max-w-6xl mx-auto">
-              <div className="mb-8 flex items-start justify-between flex-wrap gap-4">
-                <div>
-                  <h1 className="text-3xl font-bold text-slate-900 mb-1">Good morning</h1>
-                  <p className="text-slate-600 font-medium">Here's what's happening at your facility today.</p>
-                </div>
-                <button
-                  onClick={() => router.push('/admin/behavioral-trends')}
-                  className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-white text-sm font-bold shadow-lg shadow-indigo-200/50 hover:shadow-xl active:scale-95 transition-all duration-200"
-                  style={{ background: 'linear-gradient(135deg, #6366f1, #7c3aed)' }}
-                >
-                  <Bot className="w-4 h-4" />
-                  Ask Behavioral AI
-                </button>
+              <div className="mb-8">
+                <h1 className="text-3xl font-bold text-slate-900 mb-1">Good morning</h1>
+                <p className="text-slate-600 font-medium">Here's what's happening at your facility today.</p>
               </div>
 
-              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
                 <StatCard
                   label="Total residents"
                   value={stats.totalResidents}
@@ -830,6 +1102,33 @@ export default function AdminDashboard() {
                   color="violet"
                   delay={180}
                 />
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-5 mb-6">
+                <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5 animate-[fadeUp_0.4s_ease-out_backwards]" style={{ animationDelay: '220ms' }}>
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center">
+                      <Users className="w-4 h-4 text-emerald-700" />
+                    </div>
+                    <h2 className="font-bold text-slate-900 text-sm">Resident status breakdown</h2>
+                  </div>
+                  <DonutChart data={residentStatusData} totalLabel="Total residents" />
+                </div>
+
+                <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5 animate-[fadeUp_0.4s_ease-out_backwards]" style={{ animationDelay: '260ms' }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center">
+                        <TrendingUp className="w-4 h-4 text-teal-700" />
+                      </div>
+                      <h2 className="font-bold text-slate-900 text-sm">New residents (7 days)</h2>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500">
+                      {newResidentsChart.counts.reduce((a, b) => a + b, 0)} total
+                    </span>
+                  </div>
+                  <MiniBarChart labels={newResidentsChart.labels} values={newResidentsChart.counts} />
+                </div>
               </div>
 
               <div className="grid lg:grid-cols-5 gap-6">
@@ -883,18 +1182,14 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="lg:col-span-2 flex flex-col gap-5">
-                  <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5 flex-1">
+                  <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5">
                     <div className="flex items-center gap-2.5 mb-4">
                       <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center">
                         <ShieldCheck className="w-4 h-4 text-blue-700" />
                       </div>
                       <h2 className="font-bold text-slate-900 text-sm">Staff snapshot</h2>
                     </div>
-                    <div className="space-y-2.5">
-                      <StaffStatusBar label="Active" count={activeStaff} total={staffList.length} color="emerald" />
-                      <StaffStatusBar label="On leave" count={onLeaveStaff} total={staffList.length} color="amber" />
-                      <StaffStatusBar label="Inactive" count={inactiveStaff} total={staffList.length} color="gray" />
-                    </div>
+                    <DonutChart data={staffStatusData} totalLabel="Total staff" size={112} strokeWidth={14} />
                     {pendingStaff.length > 0 && (
                       <div className="mt-4 flex items-center gap-2 bg-amber-50 border border-amber-200/80 rounded-2xl px-3.5 py-2.5">
                         <Bell className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
@@ -914,8 +1209,7 @@ export default function AdminDashboard() {
                       {[
                         { label: 'Add resident', icon: Plus, action: openAddResident },
                         { label: 'View staff', icon: ClipboardList, action: () => setTab('staff') },
-                        { label: 'Add contact', icon: UserCheck, action: () => { openAddContact(); setTab('family'); } },
-                        { label: 'Behavioral AI insights', icon: Bot, action: () => router.push('/admin/behavioral-trends') },
+                        { label: 'Behavioral AI insights', icon: Bot, action: () => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH) },
                       ].map(({ label, icon: Icon, action }) => (
                         <button
                           key={label}
@@ -1022,6 +1316,22 @@ export default function AdminDashboard() {
                                 <strong className="font-bold text-amber-950">Dietary:</strong> {r.dietary_needs}
                               </p>
                             )}
+                            {r.medical_report_path && (
+                              <button
+                                onClick={() => handleViewReport(r.medical_report_path!)}
+                                disabled={reportOpening === r.medical_report_path}
+                                className="w-full flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2 text-blue-800 border border-blue-200/60 hover:bg-blue-100 transition-colors disabled:opacity-60"
+                              >
+                                {reportOpening === r.medical_report_path ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                ) : (
+                                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                                )}
+                                <span className="truncate">
+                                  {r.medical_report_name || 'View medical report'}
+                                </span>
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -1072,6 +1382,20 @@ export default function AdminDashboard() {
                           <td className="px-6 py-4"><ResidentStatusBadge status={r.status} /></td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {r.medical_report_path && (
+                                <button
+                                  onClick={() => handleViewReport(r.medical_report_path!)}
+                                  disabled={reportOpening === r.medical_report_path}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                                  title="View medical report"
+                                >
+                                  {reportOpening === r.medical_report_path ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <FileText className="w-4 h-4" />
+                                  )}
+                                </button>
+                              )}
                               <button
                                 onClick={() => openEditResident(r)}
                                 className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
@@ -1103,13 +1427,6 @@ export default function AdminDashboard() {
                   <h1 className="text-2xl font-bold text-slate-900 mb-1">Family Contacts</h1>
                   <p className="text-slate-600 text-sm font-medium">{stats.familyContacts} emergency contacts connected</p>
                 </div>
-                <button
-                  onClick={() => openAddContact()}
-                  className="flex items-center gap-2 text-white font-bold text-sm px-5 py-2.5 rounded-2xl shadow-lg shadow-emerald-200/50 hover:shadow-xl active:scale-95 transition-all duration-200"
-                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-                >
-                  <Plus className="w-4 h-4" /> Add contact
-                </button>
               </div>
 
               <div className="mb-6 max-w-sm">
@@ -1163,7 +1480,7 @@ export default function AdminDashboard() {
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
-                                onClick={() => openEditContact(c)}
+                                onClick={() => { void openEditResidentFromFamily(c); }}
                                 className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
                               >
                                 <Pencil className="w-4 h-4" />
@@ -1200,6 +1517,74 @@ export default function AdminDashboard() {
                 >
                   <Plus className="w-4 h-4" /> Add staff
                 </button>
+              </div>
+
+              {/* Staff Roles — admin-managed list backing the Position dropdown
+                  in the staff assignment modal below. */}
+              <div className="bg-white/85 backdrop-blur-sm rounded-3xl border border-slate-200/70 shadow-sm p-5">
+                <div className="flex items-center justify-between mb-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center">
+                      <Briefcase className="w-4 h-4 text-violet-700" />
+                    </div>
+                    <h2 className="font-bold text-slate-900 text-sm">Staff Roles</h2>
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {roles.length} role{roles.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {rolesLoading ? (
+                    <span className="text-xs text-slate-400 font-medium">Loading roles...</span>
+                  ) : roles.length === 0 ? (
+                    <span className="text-xs text-slate-400 font-medium">
+                      No roles yet — add one below, e.g. "Nurse" or "Housekeeping".
+                    </span>
+                  ) : (
+                    roles.map((r) => (
+                      <span
+                        key={r.id}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full"
+                      >
+                        {r.name}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRole(r.id)}
+                          className="text-slate-400 hover:text-rose-600 transition-colors"
+                          title={`Delete ${r.name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex gap-2 max-w-sm">
+                  <input
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    placeholder="Add a new role, e.g. Nurse"
+                    className={INPUT_CLASS}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddRole(newRoleName);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddRole(newRoleName)}
+                    disabled={addingRole || !newRoleName.trim()}
+                    className="px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+                  >
+                    {addingRole && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    Add
+                  </button>
+                </div>
+                {roleError && <p className="text-[11px] text-rose-600 font-semibold mt-2">{roleError}</p>}
               </div>
 
               {pendingStaff.length > 0 && (
@@ -1412,6 +1797,72 @@ export default function AdminDashboard() {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Medical Report (file)</label>
+
+                {existingReportPath && !removeExistingReport && (
+                  <div className="flex items-center justify-between gap-2 mb-2 px-3.5 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50">
+                    <button
+                      type="button"
+                      onClick={() => handleViewReport(existingReportPath)}
+                      disabled={reportOpening === existingReportPath}
+                      className="flex items-center gap-2 text-xs font-bold text-emerald-800 hover:text-emerald-900 min-w-0 disabled:opacity-60"
+                    >
+                      {reportOpening === existingReportPath ? (
+                        <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                      ) : (
+                        <FileText className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="truncate">{existingReportName || 'View current report'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRemoveExistingReport(true)}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+
+                {removeExistingReport && (
+                  <div className="flex items-center justify-between gap-2 mb-2 px-3.5 py-2.5 rounded-xl border border-rose-200 bg-rose-50">
+                    <span className="text-xs font-bold text-rose-800">
+                      Current report will be removed when you save.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRemoveExistingReport(false)}
+                      className="text-[11px] font-bold text-rose-700 hover:text-rose-800 shrink-0"
+                    >
+                      Undo
+                    </button>
+                  </div>
+                )}
+
+                <label className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+                  <Upload className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-600 truncate">
+                    {residentFile ? residentFile.name : 'Upload a PDF, image, or document'}
+                  </span>
+                  <input
+                    type="file"
+                    accept={MEDICAL_REPORT_ACCEPT}
+                    className="hidden"
+                    onChange={(e) => setResidentFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                {residentFile && (
+                  <button
+                    type="button"
+                    onClick={() => setResidentFile(null)}
+                    className="mt-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700"
+                  >
+                    Clear selected file
+                  </button>
+                )}
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-900 mb-1">Dietary Needs</label>
                 <textarea
                   rows={2}
@@ -1420,6 +1871,95 @@ export default function AdminDashboard() {
                   className={INPUT_CLASS}
                   placeholder="Low sodium, diabetic, pureed..."
                 />
+              </div>
+
+              <div className="pt-4 border-t border-slate-100">
+                <div className="mb-3">
+                  <h3 className="text-sm font-bold text-slate-900">Family / Emergency Contact</h3>
+                  <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+                    These details are saved to the Family Contacts section and linked to this resident.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Contact Full Name</label>
+                  <input
+                    required={Boolean(
+                      residentFamilyForm.phone.trim() ||
+                        residentFamilyForm.relationship.trim() ||
+                        residentFamilyForm.email.trim() ||
+                        residentFamilyForm.is_primary
+                    )}
+                    value={residentFamilyForm.full_name}
+                    onChange={(e) =>
+                      setResidentFamilyForm({ ...residentFamilyForm, full_name: e.target.value })
+                    }
+                    className={INPUT_CLASS}
+                    placeholder="e.g. John Smith"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-900 mb-1">Relationship</label>
+                    <input
+                      value={residentFamilyForm.relationship}
+                      onChange={(e) =>
+                        setResidentFamilyForm({ ...residentFamilyForm, relationship: e.target.value })
+                      }
+                      className={INPUT_CLASS}
+                      placeholder="e.g. Son, Daughter"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-900 mb-1">Phone Number</label>
+                    <input
+                      required={Boolean(
+                        residentFamilyForm.full_name.trim() ||
+                          residentFamilyForm.relationship.trim() ||
+                          residentFamilyForm.email.trim() ||
+                          residentFamilyForm.is_primary
+                      )}
+                      value={residentFamilyForm.phone}
+                      onChange={(e) =>
+                        setResidentFamilyForm({ ...residentFamilyForm, phone: e.target.value })
+                      }
+                      className={INPUT_CLASS}
+                      placeholder="e.g. +1 555 123 4567"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    value={residentFamilyForm.email}
+                    onChange={(e) =>
+                      setResidentFamilyForm({ ...residentFamilyForm, email: e.target.value })
+                    }
+                    className={INPUT_CLASS}
+                    placeholder="family@example.com"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-3">
+                  <input
+                    type="checkbox"
+                    id="resident_family_is_primary"
+                    checked={residentFamilyForm.is_primary}
+                    onChange={(e) =>
+                      setResidentFamilyForm({ ...residentFamilyForm, is_primary: e.target.checked })
+                    }
+                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                  />
+                  <label
+                    htmlFor="resident_family_is_primary"
+                    className="text-xs font-bold text-slate-900 cursor-pointer"
+                  >
+                    Set as primary emergency contact
+                  </label>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
@@ -1508,13 +2048,26 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Position</label>
-                  <input
-                    value={staffForm.position}
-                    onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value })}
-                    className={INPUT_CLASS}
-                    placeholder="Floor Cleaner"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-900">Position / Role</label>
+                  </div>
+                  <select
+                    value={staffForm.role_id}
+                    onChange={(e) => setStaffForm({ ...staffForm, role_id: e.target.value })}
+                    className={SELECT_CLASS}
+                  >
+                    <option value="">-- Select Role --</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                  {roles.length === 0 && !rolesLoading && (
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      No roles yet — add one from the "Staff Roles" section on the Staff tab.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-900 mb-1">Department</label>
@@ -1530,12 +2083,34 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-900 mb-1">Room Assigned</label>
-                  <input
+                  <select
                     value={staffForm.room_no_assigned}
                     onChange={(e) => setStaffForm({ ...staffForm, room_no_assigned: e.target.value })}
-                    className={INPUT_CLASS}
-                    placeholder="214, 207"
-                  />
+                    className={SELECT_CLASS}
+                  >
+                    <option value="" className="bg-white text-slate-900 font-medium py-1.5">
+                      -- Select Room --
+                    </option>
+                    {roomOptions.map((roomNumber) => (
+                      <option
+                        key={roomNumber}
+                        value={roomNumber}
+                        className="bg-white text-slate-900 font-medium py-1.5"
+                      >
+                        Room {roomNumber}
+                      </option>
+                    ))}
+                  </select>
+                  {roomOptions.length === 0 ? (
+                    <p className="text-[11px] text-amber-600 font-semibold mt-1">
+                      No room numbers are available yet. Add a room number to a resident first.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 font-medium mt-1">
+                      Rooms are taken directly from residents.room_number. The same room can be
+                      assigned to multiple staff members for different shifts.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-900 mb-1">Shift Start</label>
@@ -1616,127 +2191,8 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ════ CONTACT MODAL ═══════════════════════════════════════════════════ */}
-      {showContactModal && (
-        <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-200 ${
-            contactModalClosing ? 'opacity-0' : 'opacity-100'
-          }`}
-        >
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-slate-900">
-                {editingContactId ? 'Edit Family Contact' : 'Add Emergency Contact'}
-              </h2>
-              <button
-                onClick={closeContactModal}
-                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {contactError && (
-              <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-2xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{contactError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveContact} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">Select Resident *</label>
-                <select
-                  required
-                  value={contactForm.resident_id}
-                  onChange={(e) => setContactForm({ ...contactForm, resident_id: e.target.value })}
-                  className={SELECT_CLASS}
-                >
-                  <option value="" className="bg-white text-slate-900 font-medium py-1.5">-- Select Resident --</option>
-                  {residents.map((r) => (
-                    <option key={r.id} value={r.id} className="bg-white text-slate-900 font-medium py-1.5">
-                      {r.full_name} {r.room_number ? `(Room ${r.room_number})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">Contact Full Name *</label>
-                <input
-                  required
-                  value={contactForm.full_name}
-                  onChange={(e) => setContactForm({ ...contactForm, full_name: e.target.value })}
-                  className={INPUT_CLASS}
-                  placeholder="e.g. John Smith"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Relationship</label>
-                  <input
-                    value={contactForm.relationship}
-                    onChange={(e) => setContactForm({ ...contactForm, relationship: e.target.value })}
-                    className={INPUT_CLASS}
-                    placeholder="e.g. Son, Daughter"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Phone Number *</label>
-                  <input
-                    required
-                    value={contactForm.phone}
-                    onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
-                    className={INPUT_CLASS}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">Email Address</label>
-                <input
-                  type="email"
-                  value={contactForm.email}
-                  onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
-                  className={INPUT_CLASS}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="is_primary"
-                  checked={contactForm.is_primary}
-                  onChange={(e) => setContactForm({ ...contactForm, is_primary: e.target.checked })}
-                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                />
-                <label htmlFor="is_primary" className="text-xs font-bold text-slate-900 cursor-pointer">
-                  Set as primary emergency contact
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={closeContactModal}
-                  className="px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={contactSaving}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md flex items-center gap-2"
-                >
-                  {contactSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save Contact
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* ════ FLOATING AI ASSISTANT BUTTON ═══════════════════════════════════ */}
+      <FloatingAIButton onClick={() => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH)} />
     </div>
   );
 }
@@ -1822,32 +2278,149 @@ function StatCard({
   );
 }
 
-function StaffStatusBar({
-  label,
-  count,
-  total,
-  color,
+// ─── Real-time-computed charts (pure SVG, no chart library needed) ────────────
+
+function DonutChart({
+  data,
+  totalLabel,
+  size = 132,
+  strokeWidth = 16,
 }: {
-  label: string;
-  count: number;
-  total: number;
-  color: string;
+  data: { label: string; value: number; color: string }[];
+  totalLabel: string;
+  size?: number;
+  strokeWidth?: number;
 }) {
-  const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  let offsetAcc = 0;
+
   return (
-    <div>
-      <div className="flex justify-between text-xs font-bold mb-1">
-        <span className="text-slate-700">{label}</span>
-        <span className="text-slate-900 font-extrabold">{count} ({percent}%)</span>
+    <div className="flex items-center gap-5">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#EEF2E9" strokeWidth={strokeWidth} />
+        {total > 0 &&
+          data
+            .filter((d) => d.value > 0)
+            .map((d, i) => {
+              const fraction = d.value / total;
+              const dash = fraction * circumference;
+              const gap = circumference - dash;
+              const strokeDashoffset = -offsetAcc;
+              offsetAcc += dash;
+              return (
+                <circle
+                  key={i}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  fill="none"
+                  stroke={d.color}
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${dash} ${gap}`}
+                  strokeDashoffset={strokeDashoffset}
+                  className="transition-all duration-700 ease-out"
+                />
+              );
+            })}
+      </svg>
+      <div className="flex-1 min-w-0">
+        <p className="text-2xl font-bold text-slate-900 leading-tight">{total}</p>
+        <p className="text-[11px] text-slate-500 font-medium mb-2">{totalLabel}</p>
+        <div className="space-y-1.5">
+          {data.map((d, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+              <span className="text-slate-600 font-medium flex-1 truncate">{d.label}</span>
+              <span className="text-slate-900 font-bold">{d.value}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+    </div>
+  );
+}
+
+function MiniBarChart({ labels, values }: { labels: string[]; values: number[] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div className="flex items-end justify-between gap-2 h-28">
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+          <span className="text-[10px] font-bold text-slate-500">{v > 0 ? v : ''}</span>
+          <div className="w-full h-[72px] flex items-end justify-center">
+            <div
+              className="w-full max-w-[26px] rounded-t-lg bg-gradient-to-t from-emerald-500 to-teal-400 transition-all duration-700 ease-out"
+              style={{ height: `${Math.max((v / max) * 100, v > 0 ? 8 : 2)}%` }}
+              title={`${labels[i]}: ${v}`}
+            />
+          </div>
+          <span className="text-[10px] font-semibold text-slate-400">{labels[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Floating AI assistant launcher ───────────────────────────────────────────
+function FloatingAIButton({ onClick }: { onClick: () => void }) {
+  const [tipIndex, setTipIndex] = useState(0);
+  const [tipVisible, setTipVisible] = useState(true);
+  const [bubbleDismissed, setBubbleDismissed] = useState(false);
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setEntered(true), 300);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipVisible(false);
+      setTimeout(() => {
+        setTipIndex((i) => (i + 1) % AI_TIPS.length);
+        setTipVisible(true);
+      }, 250);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div
+      className={`fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 transition-all duration-500 ease-out ${
+        entered ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-90'
+      }`}
+    >
+      {!bubbleDismissed && (
         <div
-          className={`h-full rounded-full ${
-            color === 'emerald' ? 'bg-emerald-600' : color === 'amber' ? 'bg-amber-500' : 'bg-slate-500'
+          className={`relative max-w-[230px] bg-white border border-slate-200 rounded-2xl rounded-br-sm shadow-lg px-4 py-3 pr-6 transition-all duration-300 ${
+            tipVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
           }`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+        >
+          <button
+            onClick={() => setBubbleDismissed(true)}
+            className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
+            title="Dismiss"
+          >
+            <X className="w-2.5 h-2.5 text-slate-500" />
+          </button>
+          <p className="text-xs font-medium text-slate-700 leading-snug">{AI_TIPS[tipIndex]}</p>
+        </div>
+      )}
+
+      <button
+        onClick={onClick}
+        title="Ask Behavioral AI — starts a new chat"
+        className="relative w-16 h-16 rounded-full flex items-center justify-center shadow-xl shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-transform duration-200"
+        style={{ background: 'linear-gradient(135deg, #6366f1, #7c3aed)' }}
+      >
+        <span className="absolute inset-0 rounded-full bg-indigo-400/40 animate-ping" style={{ animationDuration: '2.4s' }} />
+        <Bot className="w-7 h-7 text-white relative z-10" />
+        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-sm">
+          <Sparkles className="w-3 h-3 text-indigo-600" />
+        </span>
+      </button>
     </div>
   );
 }

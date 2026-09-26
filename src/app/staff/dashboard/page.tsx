@@ -20,11 +20,13 @@ import {
   AlertTriangle,
   ArrowRight,
   MessageSquare,
+  Bot,
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
 import SOSModal from "../../../components/SOSModal";
 import ResidentQuickView from "../../../components/ResidentQuickView";
 import EndOfShiftModal from "../../../components/EndOfShiftModal";
+import BehaviorAlertsSummaryCard from "../../../components/BehaviorAlertsSummaryCard";
 
 type Resident = {
   id: string;
@@ -52,6 +54,11 @@ function startOfTodayISO() {
   d.setHours(0, 0, 0, 0);
   return d.toISOString();
 }
+
+// Same ElderAI chat route used on the admin dashboard, so staff and admins
+// land in the same assistant. Always opened with ?new=1 so it starts a
+// fresh conversation instead of resuming whatever was last open.
+const BEHAVIORAL_AI_NEW_CHAT_PATH = "/admin/behavioral-trends?new=1";
 
 export default function StaffDashboard() {
   const router = useRouter();
@@ -262,6 +269,14 @@ export default function StaffDashboard() {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 shadow-xs px-3.5 py-2 rounded-xl transition-all hidden sm:flex"
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>Ask ElderAI</span>
+            </button>
+
+            <button
               onClick={() => setShowEndShift(true)}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 hover:text-[#357366] bg-white hover:bg-gray-50 border border-gray-200/80 shadow-xs px-3.5 py-2 rounded-xl transition-all hidden sm:flex"
             >
@@ -469,6 +484,9 @@ export default function StaffDashboard() {
           )}
         </div>
 
+        {/* BEHAVIOR PATTERN ALERTS SUMMARY */}
+        <BehaviorAlertsSummaryCard />
+
         {/* SEARCH BAR */}
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -645,7 +663,31 @@ export default function StaffDashboard() {
           onConfirmSignOut={handleConfirmSignOut}
         />
       )}
+
+      {/* Floating ElderAI launcher — reachable from every tab/section,
+          mirrors the same button on the admin dashboard. */}
+      <FloatingAIButton onClick={() => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH)} />
     </div>
+  );
+}
+
+// Fixed bottom-right AI assistant launcher. Kept visually distinct
+// (indigo/violet) from the teal staff-portal palette on purpose, so it
+// reads as the same ElderAI brand wherever it appears in the app.
+function FloatingAIButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Ask ElderAI — starts a new chat"
+      className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-xl shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-transform duration-200"
+      style={{ background: "linear-gradient(135deg, #6366f1, #7c3aed)" }}
+    >
+      <span
+        className="absolute inset-0 rounded-full bg-indigo-400/40 animate-ping"
+        style={{ animationDuration: "2.4s" }}
+      />
+      <Bot className="w-6 h-6 text-white relative z-10" />
+    </button>
   );
 }
 

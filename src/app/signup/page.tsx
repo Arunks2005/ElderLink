@@ -53,6 +53,7 @@ export default function SignupPage() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
   // Shown after a successful signup that requires email confirmation.
@@ -150,23 +151,38 @@ export default function SignupPage() {
 
   async function handleGoogleSignup() {
     setError('');
+    setGoogleLoading(true);
     try {
       const supabase = createClient();
+
+      // IMPORTANT: `role` used to be passed via `queryParams`, but those
+      // params get attached to the request Supabase sends to *Google's*
+      // authorization screen — Google has no use for a `role` field, so it
+      // was silently dropped and never made it back to our app. That left
+      // /auth/callback with no way to know which table (admins vs staff) a
+      // first-time Google sign-up should land in, so the auth.users row got
+      // created but the person was never routed anywhere ("signed up but
+      // not signed in").
+      //
+      // The fix: encode role into the redirectTo URL itself. Query params
+      // on redirectTo DO survive the full round trip through Google and
+      // back, so /auth/callback can read `?role=` from its own request URL.
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          // Google signups skip this form, so the role/full_name metadata
-          // never gets set here — pass role through as a query param and
-          // read it in your /auth/callback route to insert into admins/staff
-          // there instead. Adjust the callback route accordingly.
-          queryParams: { role },
+          redirectTo: `${window.location.origin}/auth/callback?role=${role}`,
         },
       });
-      if (oauthError) setError(friendlyAuthError(oauthError.message || getErrorMessage(oauthError)));
+      if (oauthError) {
+        setError(friendlyAuthError(oauthError.message || getErrorMessage(oauthError)));
+        setGoogleLoading(false);
+      }
+      // On success the browser navigates away to Google, then back to
+      // /auth/callback — no need to reset loading here.
     } catch (err) {
       console.error('Google signup failed:', err);
       setError(getErrorMessage(err));
+      setGoogleLoading(false);
     }
   }
 
@@ -376,7 +392,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || googleLoading}
               className="w-full bg-[#E8934A] text-[#2B2B2B] font-semibold py-3 rounded-full hover:bg-[#F0A25E] active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
               {loading ? 'Creating account…' : `Sign up as ${selectedRole.label}`}
@@ -385,7 +401,8 @@ export default function SignupPage() {
             <button
               type="button"
               onClick={handleGoogleSignup}
-              className="w-full border border-[#8FA0A9] text-[#F5F3EF] font-semibold py-3 rounded-full flex items-center justify-center gap-2 hover:bg-white/5 active:scale-[0.98] transition-all duration-200"
+              disabled={loading || googleLoading}
+              className="w-full border border-[#8FA0A9] text-[#F5F3EF] font-semibold py-3 rounded-full flex items-center justify-center gap-2 hover:bg-white/5 active:scale-[0.98] disabled:opacity-60 transition-all duration-200"
             >
               <svg width="16" height="16" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.66-.22-2.45H12v4.63h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.87c2.27-2.09 3.58-5.17 3.58-8.81z"/>
@@ -393,7 +410,7 @@ export default function SignupPage() {
                 <path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.1H1.27a12 12 0 0 0 0 10.75l4-3.11z"/>
                 <path fill="#EA4335" d="M12 4.77c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.27 6.63l4 3.1C6.22 6.88 8.87 4.77 12 4.77z"/>
               </svg>
-              Sign up with Google
+              {googleLoading ? 'Redirecting…' : 'Sign up with Google'}
             </button>
           </form>
 
