@@ -216,6 +216,12 @@ export default function HandoverModal({
                 </section>
               )}
 
+              {handover.includesDemo && (
+                <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Includes seeded DEMO care logs, not real observations.
+                </p>
+              )}
+
               {warnings.length > 0 && (
                 <div className="text-[11px] text-gray-500 space-y-0.5">
                   {warnings.map((w) => (

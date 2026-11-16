@@ -463,6 +463,9 @@ export default function EarlyWarningPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [includeSimulated, setIncludeSimulated] = useState(false);
+  // entry_source values the server actually used (demo data can be switched
+  // on server-wide with ELDERLINK_INCLUDE_DEMO_DATA=true).
+  const [liveSources, setLiveSources] = useState<string[]>(["manual"]);
   const [showMethod, setShowMethod] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -470,12 +473,13 @@ export default function EarlyWarningPage() {
 
   const fetchLive = useCallback(async (withSimulated: boolean) => {
     try {
-      const res = await fetch(`/api/early-warning?sources=${withSimulated ? "manual,sensor,demo" : "manual"}`, {
+      const res = await fetch(`/api/early-warning${withSimulated ? "?sources=manual,sensor,demo" : ""}`, {
         cache: "no-store",
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
       setLiveReport(json.report);
+      setLiveSources(Array.isArray(json.sources) ? json.sources : ["manual"]);
       setWarnings(json.warnings ?? []);
       setError(null);
     } catch (e) {
@@ -529,7 +533,11 @@ export default function EarlyWarningPage() {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res = await fetch("/api/early-warning", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const res = await fetch(`/api/early-warning?sources=${liveSources.join(",")}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
       setSaveMsg(
@@ -600,7 +608,10 @@ export default function EarlyWarningPage() {
             <ShieldCheck className="w-4 h-4 shrink-0" />
             <span>
               <strong>Live data</strong> from staff care logs.{" "}
-              {includeSimulated ? "Simulated sensor entries are INCLUDED." : "Simulated sensor entries are excluded."}
+              {liveSources.includes("demo") && (
+                <strong className="text-amber-700">Includes seeded DEMO care logs. </strong>
+              )}
+              {liveSources.includes("sensor") ? "Simulated sensor entries are INCLUDED." : "Simulated sensor entries are excluded."}
             </span>
             <label className="ml-auto text-xs inline-flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={includeSimulated} onChange={(e) => toggleSimulated(e.target.checked)} />

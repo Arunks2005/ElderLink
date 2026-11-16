@@ -51,6 +51,8 @@ export type HandoverInput = {
   notes?: { note: string; created_at: string; shift?: string | null }[];
   authorName?: string | null;
   timeZone?: string;
+  /** entry_source values that count (default: real staff entries only). */
+  allowedSources?: string[];
 };
 
 export type ResidentShiftSummary = {
@@ -84,6 +86,8 @@ export type Handover = {
   assistance: string[];
   notes: string[];
   stats: { residents: number; logged: number; logs: number; simulatedExcluded: number };
+  /** True when seeded demo care logs were part of this handover. */
+  includesDemo: boolean;
   text: string;
 };
 
@@ -142,8 +146,9 @@ export function logConcerns(log: ShiftLog): string[] {
 
 export function buildHandover(input: HandoverInput): Handover {
   const tz = input.timeZone;
-  const allowed = new Set(["manual"]);
+  const allowed = new Set((input.allowedSources ?? ["manual"]).map((s) => s.toLowerCase()));
   const realLogs = input.logs.filter((l) => allowed.has((l.entry_source ?? "manual").toLowerCase()));
+  const includesDemo = allowed.has("demo") && realLogs.some((l) => (l.entry_source ?? "").toLowerCase() === "demo");
   const simulatedExcluded = input.logs.length - realLogs.length;
 
   const byResident = new Map<string, ShiftLog[]>();
@@ -277,6 +282,7 @@ export function buildHandover(input: HandoverInput): Handover {
     assistance,
     notes,
     stats: { residents: residents.length, logged, logs: realLogs.length, simulatedExcluded },
+    includesDemo,
   };
   return { ...base, text: handoverText(base, input.authorName, tz) };
 }
@@ -291,6 +297,7 @@ export function handoverText(h: Omit<Handover, "text">, author?: string | null, 
       (author ? ` · by ${author}` : "")
   );
   L.push(`${h.stats.logged}/${h.stats.residents} residents logged · ${h.stats.logs} care entries`);
+  if (h.includesDemo) L.push("NOTE: includes seeded DEMO care logs, not real observations.");
   L.push("");
 
   L.push("SEE FIRST:");

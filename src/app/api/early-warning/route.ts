@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
   try {
     const data = await loadLiveData(auth.supabase);
-    const report = runLiveEngine(data);
+    const report = runLiveEngine(data, parseSources(new URL(request.url)));
     const result = await persistAlerts(auth.supabase, report, residentIds);
     return Response.json(result);
   } catch (e) {

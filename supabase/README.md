@@ -45,3 +45,29 @@ select id, full_name, email, phone_number from public.staff where email = 'perso
 * Auth → Password security: turn on **Leaked password protection**.
 * Decide whether `sensor_events` should keep accepting anonymous inserts
   (policy "Allow inserts from device"). Nothing in the app uses it yet.
+
+## Demo data (seeded 2026-11-16)
+
+`care_logs_demo` holds 1,138 rows with `entry_source = 'demo'` and
+`staff_id = null`, covering the 28 days up to 16 Nov 2026 for the 11 active
+residents. They are demonstration data, not real observations:
+
+| Resident | Scripted scenario |
+|---|---|
+| Antonio Lopez | low fluids + new confusion + slightly raised temperature (last 3 days) |
+| Maria Fernandez | eating less and lower mood (last 5 days); has the family test login |
+| Frank Nguyen | refusing evening medication (last 3 days) |
+| Ramanna | knee pain rising from ~3/10 to ~6.5/10 (last 3 days) |
+| Helen Osei | logged once a day while others get four (under-observed) |
+| everyone else | normal day-to-day variation (should NOT be flagged) |
+
+The app ignores these rows unless `ELDERLINK_INCLUDE_DEMO_DATA=true`; then
+every screen that uses them shows a DEMO notice. The daily-score trigger has
+already built `daily_aggregates` for these days.
+
+To remove the demo data later:
+
+```sql
+delete from public.care_logs_demo where entry_source = 'demo' and staff_id is null
+  and created_at >= '2026-10-19';
+```

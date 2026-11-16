@@ -59,10 +59,13 @@ export function buildFamilyContext(opts: {
   emergencies?: Record<string, unknown>[];
   now?: Date;
   timeZone?: string;
+  /** entry_source values that count (default: real staff entries only). */
+  allowedSources?: string[];
 }): { context: string; logsUsed: number; simulatedExcluded: number } {
   const tz = opts.timeZone;
   const now = opts.now ?? new Date();
-  const real = opts.logs.filter((l) => (l.entry_source ?? "manual").toLowerCase() === "manual");
+  const allowed = new Set((opts.allowedSources ?? ["manual"]).map((s) => s.toLowerCase()));
+  const real = opts.logs.filter((l) => allowed.has((l.entry_source ?? "manual").toLowerCase()));
   const simulatedExcluded = opts.logs.length - real.length;
   const r = opts.resident;
 
@@ -75,6 +78,9 @@ export function buildFamilyContext(opts: {
   if (r.dietary_needs) lines.push(`Dietary needs: ${clean(r.dietary_needs)}`);
   if (r.medical_notes) lines.push(`Medical notes on file: ${clean(r.medical_notes, 500)}`);
   lines.push(`Today is ${fmtTime(now.toISOString(), tz)} (care home time).`);
+  if (real.some((l) => (l.entry_source ?? "").toLowerCase() === "demo")) {
+    lines.push("Some care logs below are DEMONSTRATION data (marked [demo data]). If asked, say the records include demo entries.");
+  }
   lines.push("");
 
   // Day-by-day summary (newest first) so totals don't have to be inferred.
@@ -102,7 +108,7 @@ export function buildFamilyContext(opts: {
     if (l.temperature != null) vitals.push(`temp ${Number(l.temperature).toFixed(1)}°F`);
     if (l.pain_scale != null) vitals.push(`pain ${l.pain_scale}/10`);
     lines.push(
-      `- ${fmtTime(l.created_at, tz)}: meals ${l.meals ?? "-"}, fluids ${l.fluids ?? "-"}, mood ${l.mood ?? "-"}, ` +
+      `- ${fmtTime(l.created_at, tz)}${(l.entry_source ?? "").toLowerCase() === "demo" ? " [demo data]" : ""}: meals ${l.meals ?? "-"}, fluids ${l.fluids ?? "-"}, mood ${l.mood ?? "-"}, ` +
         `medication ${l.medication ?? "-"}${vitals.length ? `, ${vitals.join(", ")}` : ""}` +
         (l.notes ? `. Staff note: "${clean(l.notes, 200)}"` : "")
     );

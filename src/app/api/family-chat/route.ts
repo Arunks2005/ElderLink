@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { CARE_HOME_TZ } from "@/lib/early-warning/server";
+import { CARE_HOME_TZ, defaultSources } from "@/lib/early-warning/server";
 import { firstNameOf } from "@/lib/early-warning/engine";
 import { buildFamilyContext, familySystemPrompt, type FamilyChatLog } from "@/lib/family-chat/context";
 import Groq from "groq-sdk";
@@ -171,6 +171,7 @@ export async function POST(request: Request) {
     incidents: incidentsRes.error ? [] : ((incidentsRes.data ?? []) as { description: string | null; created_at: string }[]),
     emergencies: emergenciesRes.error ? [] : ((emergenciesRes.data ?? []) as Record<string, unknown>[]),
     timeZone: CARE_HOME_TZ,
+    allowedSources: defaultSources(),
   });
 
   const system =

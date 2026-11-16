@@ -1,5 +1,5 @@
 import { requireCareRole } from "@/lib/auth/require-care-role";
-import { CARE_HOME_TZ, loadLiveData, runLiveEngine } from "@/lib/early-warning/server";
+import { CARE_HOME_TZ, defaultSources, loadLiveData, runLiveEngine } from "@/lib/early-warning/server";
 import { buildHandover, shiftFor, type ShiftLog } from "@/lib/handover/build";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,7 @@ export async function GET(request: Request) {
       notes,
       authorName: (staffRow.data as { full_name?: string | null } | null)?.full_name ?? null,
       timeZone: CARE_HOME_TZ,
+      allowedSources: defaultSources(),
     });
 
     return Response.json({ handover, warnings });

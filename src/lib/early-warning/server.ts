@@ -27,14 +27,27 @@ export const CARE_HOME_TZ = process.env.CARE_HOME_TIMEZONE || "Asia/Kolkata";
 const INACTIVE = new Set(["discharged", "deceased", "inactive", "archived"]);
 const PAGE = 1000; // PostgREST default max rows per request
 
+/**
+ * Demo mode switch. care_logs_demo rows with entry_source = 'demo' are
+ * seeded demonstration data. They are ignored unless
+ * ELDERLINK_INCLUDE_DEMO_DATA=true, and every screen that uses them says so.
+ */
+export const INCLUDE_DEMO_DATA = process.env.ELDERLINK_INCLUDE_DEMO_DATA === "true";
+
+/** entry_source values counted as observations when the caller doesn't choose. */
+export function defaultSources(): string[] {
+  return INCLUDE_DEMO_DATA ? ["manual", "demo"] : ["manual"];
+}
+
 export function parseSources(url: URL): string[] {
   const raw = url.searchParams.get("sources");
+  if (!raw) return defaultSources();
   const allowed = new Set(["manual", "sensor", "demo"]);
-  const list = (raw ?? "manual")
+  const list = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter((s) => allowed.has(s));
-  return list.length ? list : ["manual"];
+  return list.length ? list : defaultSources();
 }
 
 export async function loadLiveData(supabase: Supa) {
@@ -128,7 +141,7 @@ export function runLiveEngine(data: Awaited<ReturnType<typeof loadLiveData>>, so
     logs: data.logs,
     familyContacts: data.familyContacts,
     familyMessages: data.familyMessages,
-    allowedSources: sources,
+    allowedSources: sources ?? defaultSources(),
     timeZone: CARE_HOME_TZ,
   });
 }
