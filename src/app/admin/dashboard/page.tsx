@@ -34,6 +34,7 @@ import {
   Sparkles,
   Upload,
   FileText,
+  BedDouble,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -1043,6 +1044,18 @@ export default function AdminDashboard() {
             );
           })}
         </nav>
+
+        <div className="px-4 pb-2 shrink-0">
+          <Link
+            href="/admin/wards"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 group"
+          >
+            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+              <BedDouble className="w-4 h-4" />
+            </div>
+            Wards &amp; beds
+          </Link>
+        </div>
 
         <div className="px-4 pb-6 shrink-0">
           <button

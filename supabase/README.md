@@ -7,6 +7,7 @@
 | `migrations/20261116000000_security_hardening.sql` | Locks down row-level security, stops admin self-signup, removes an unsafe family-linking function, adds missing columns/policies/table used by the app. **Applied to the ElderLink project on 2026-11-16.** |
 | `migrations/20261116010000_fast_checks.sql` | Adds `fast_checks` (BE-FAST stroke checks), readable/writable by care staff only. **Applied 2026-11-16.** |
 | `migrations/20261116020000_sensor_events.sql` | Adds value/unit/payload/sensor columns to `sensor_events`, removes anonymous inserts, staff-only access, realtime feed. Used by the Sensor Lab. **Applied 2026-11-16.** |
+| `migrations/20261116030000_wards_beds.sql` | Shared wards: `wards`, `beds` (one resident per bed, random QR token) and `sensor_zones` (bed mats, bathroom radar, walkway sensor). Staff read, admins manage. **Applied 2026-11-16**, seeded with Ward A / Ward B (6 beds each, the 11 active residents placed alphabetically; rearrange in Admin → Wards & beds). |
 | `rollback/20261116_policies_before_hardening.sql` | The policies as they were before, for reference only. Several were unsafe. |
 
 ## Who can see what (after hardening)

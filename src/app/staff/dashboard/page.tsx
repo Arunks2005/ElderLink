@@ -24,6 +24,7 @@ import {
   Radar,
   Brain,
   Cpu,
+  BedDouble,
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
 import SOSModal from "../../../components/SOSModal";
@@ -33,6 +34,7 @@ import BehaviorAlertsSummaryCard from "../../../components/BehaviorAlertsSummary
 import LiveAlerts from "../../../components/LiveAlerts";
 import HandoverModal from "../../../components/HandoverModal";
 import { shiftFor } from "../../../lib/handover/build";
+import { PENDING_BED_KEY } from "../../../lib/wards/wards";
 
 type Resident = {
   id: string;
@@ -97,6 +99,19 @@ export default function StaffDashboard() {
       } = await supabase.auth.getUser();
       if (!u) {
         router.push("/login");
+        return;
+      }
+
+      // A bed QR tag scanned before signing in: continue to that bed now.
+      let pendingBed: string | null = null;
+      try {
+        pendingBed = localStorage.getItem(PENDING_BED_KEY);
+        if (pendingBed) localStorage.removeItem(PENDING_BED_KEY);
+      } catch {
+        /* storage unavailable */
+      }
+      if (pendingBed) {
+        router.push(`/b/${pendingBed}`);
         return;
       }
 
@@ -303,6 +318,14 @@ export default function StaffDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/staff/wards"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#357366] bg-[#EAF4F1] hover:bg-[#dcefe9] border border-[#4F9C8B]/30 shadow-xs px-3.5 py-2 rounded-xl transition-all"
+            >
+              <BedDouble className="w-3.5 h-3.5" />
+              <span>Wards</span>
+            </Link>
+
             <Link
               href="/staff/early-warning"
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#357366] hover:bg-[#2c6156] shadow-xs px-3.5 py-2 rounded-xl transition-all"
