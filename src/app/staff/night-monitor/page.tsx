@@ -14,10 +14,11 @@
  *    Early Warning / Behaviour Alerts.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BedDouble, FlaskConical, Loader2, Moon, Radar, Send, ShowerHead } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BedDouble, FlaskConical, Loader2, Moon, Radar, Send, ShowerHead } from "lucide-react";
+import { FALL_CONFIRM_MS } from "@/lib/sensors/radar";
 import { createClient } from "@/lib/supabase/client";
 import { loadWards, type Ward } from "@/lib/wards/wards";
 import { clockOf, SCENARIO_LABEL, seeded, simulateWardNight, type NightScenario, type WardNight } from "@/lib/sensors/night";
@@ -104,6 +105,18 @@ export default function NightMonitorPage() {
   const [nightsByBed, setNightsByBed] = useState<Record<string, SensorDayInput[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  // Shared-bathroom 60 GHz radar fall simulation.
+  const [fallWho, setFallWho] = useState<string>("unknown");
+  const [fallPhase, setFallPhase] = useState<"idle" | "confirming" | "alerted">("idle");
+  const [fallCountdown, setFallCountdown] = useState(0);
+  const [fallMsg, setFallMsg] = useState<string | null>(null);
+  const fallTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(
+    () => () => {
+      if (fallTimer.current) clearInterval(fallTimer.current);
+    },
+    []
+  );
   const [msg, setMsg] = useState<{ text: string; tone: "ok" | "warn" | "err" } | null>(null);
 
   useEffect(() => {
@@ -255,7 +268,7 @@ export default function NightMonitorPage() {
             <Moon className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="font-bold leading-tight">Night Monitor</h1>
+            <h1 className="font-bold leading-tight">Ward sensors</h1>
             <p className="text-[11px] text-slate-500 hidden sm:block">Bed mats + shared-bathroom radar → each resident&apos;s night, compared with their 1-week normal</p>
           </div>
           <div className="ml-auto flex gap-1.5">
@@ -336,6 +349,127 @@ export default function NightMonitorPage() {
                 </button>
               )}
             </div>
+          </section>
+        )}
+
+        {ward && (
+          <section className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-sky-50 text-sky-700 shrink-0">
+                <ShowerHead className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold">{ward.name} shared bathroom: 60 GHz radar fall detection</h2>
+                <p className="text-xs text-slate-600">
+                  A fast drop to the floor followed by {FALL_CONFIRM_MS / 1000} s without getting up raises a fall alert. The
+                  radar can&apos;t see who it is, so ElderLink credits the resident whose bed mat registered an exit in the
+                  last few minutes.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm font-semibold" htmlFor="fall-who">
+                Who walked in?
+              </label>
+              <select
+                id="fall-who"
+                value={fallWho}
+                onChange={(e) => setFallWho(e.target.value)}
+                disabled={fallPhase === "confirming"}
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white min-w-[220px]"
+              >
+                {occupied.map((b) => (
+                  <option key={b.id} value={b.resident!.id}>
+                    {b.resident!.full_name} (left {b.label})
+                  </option>
+                ))}
+                <option value="unknown">Nobody left a bed recently (unknown)</option>
+              </select>
+              {fallPhase !== "confirming" ? (
+                <button
+                  onClick={() => {
+                    const w = ward;
+                    const who = fallWho;
+                    let left = FALL_CONFIRM_MS / 1000;
+                    setFallPhase("confirming");
+                    setFallCountdown(left);
+                    setFallMsg(null);
+                    fallTimer.current = setInterval(() => {
+                      left -= 1;
+                      setFallCountdown(left);
+                      if (left <= 0) {
+                        if (fallTimer.current) clearInterval(fallTimer.current);
+                        fallTimer.current = null;
+                        void (async () => {
+                          const supabase = createClient();
+                          const short = w.name.replace(/\s+/g, "").toUpperCase();
+                          const deviceId = `SIM-RADAR60-BATH-${short}`;
+                          const residentId = who === "unknown" ? null : who;
+                          const { error } = await supabase.from("fall_events").insert({
+                            device_id: deviceId,
+                            resident_id: residentId,
+                            status: "unresolved",
+                            z_drop: 2.2,
+                            doppler_spike: 1.8,
+                          });
+                          await supabase.from("sensor_events").insert({
+                            source: "simulated_sensor",
+                            sensor_type: "mmwave_radar",
+                            device_id: deviceId,
+                            room: `${w.name} bathroom`,
+                            resident_id: residentId,
+                            event_type: "fall_confirmed",
+                            status: "alert",
+                            payload: { credited_by: residentId ? "last bed exit" : "none" },
+                          });
+                          const name = occupied.find((b) => b.resident!.id === who)?.resident!.full_name;
+                          setFallPhase("alerted");
+                          setFallMsg(
+                            error
+                              ? `Fall confirmed, but the alert could not be saved: ${error.message}`
+                              : `Fall confirmed in the ${w.name} bathroom${name ? `, credited to ${name}` : " (person unknown)"}. The alert is live on the staff dashboard.`
+                          );
+                        })();
+                      }
+                    }, 1000);
+                  }}
+                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2.5 rounded-xl"
+                >
+                  <AlertTriangle className="w-4 h-4" /> Simulate a fall in the bathroom
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (fallTimer.current) clearInterval(fallTimer.current);
+                    fallTimer.current = null;
+                    setFallPhase("idle");
+                    setFallMsg("They got up within the confirmation window, so no alert was raised.");
+                  }}
+                  className="inline-flex items-center gap-2 border border-slate-300 bg-white font-bold px-4 py-2.5 rounded-xl"
+                >
+                  They got up (cancel)
+                </button>
+              )}
+            </div>
+            {fallPhase === "confirming" && (
+              <p className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-900 font-semibold">
+                Fast drop detected. Person on the bathroom floor: alert in {fallCountdown} s unless they get up…
+              </p>
+            )}
+            {fallMsg && (
+              <p
+                className={`rounded-xl border px-3 py-2 text-sm ${
+                  fallPhase === "alerted" ? "bg-red-600 border-red-700 text-white font-semibold" : "bg-emerald-50 border-emerald-200 text-emerald-900"
+                }`}
+              >
+                {fallMsg}
+                {fallPhase === "alerted" && (
+                  <Link href="/staff/dashboard" className="ml-2 underline">
+                    Open dashboard →
+                  </Link>
+                )}
+              </p>
+            )}
           </section>
         )}
 

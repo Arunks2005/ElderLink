@@ -333,9 +333,10 @@ export default function StaffDashboard() {
 
         {actionError && <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{actionError}</p>}
 
-        <div className="grid gap-4 lg:grid-cols-[360px_1fr] items-start">
-          {/* Left column (on phones it follows the ward, which is the round) */}
-          <div className="space-y-4 lg:sticky lg:top-20 order-2 lg:order-1">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
+          {/* Right column: compact behaviour analysis + handoff notes.
+              On phones it comes after the ward, which is the round. */}
+          <div className="space-y-4 lg:sticky lg:top-20 order-2">
             <BehaviourPanel dataVersion={dataVersion} onReport={onReport} />
 
             <section className="bg-white rounded-3xl border border-gray-100 shadow-xs p-4 space-y-3">
@@ -389,8 +390,8 @@ export default function StaffDashboard() {
             </section>
           </div>
 
-          {/* Main: the ward */}
-          <div className="order-1 lg:order-2 min-w-0">
+          {/* Main: the ward (wide, first) */}
+          <div className="order-1 min-w-0">
           <WardBoard
             wards={wards}
             unplaced={unplaced}

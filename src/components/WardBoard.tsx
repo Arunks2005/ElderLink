@@ -183,7 +183,6 @@ export default function WardBoard({
     />
   );
 
-  const half = ward ? Math.ceil(ward.beds.length / 2) : 0;
   const bathroom = ward?.sharedZones.find((z) => z.kind === "bathroom");
   const walkway = ward?.sharedZones.find((z) => z.kind === "walkway");
   const alertsInWard = (w: Ward) => w.beds.some((b) => b.resident && (falls.has(b.resident.id) || statuses.get(b.resident.id) === "act"));
@@ -248,30 +247,27 @@ export default function WardBoard({
       {!ward ? (
         <p className="p-6 text-sm text-slate-500 text-center">No wards set up yet. An admin can add them under Wards &amp; beds.</p>
       ) : (
-        <div className="p-4 grid gap-3 lg:grid-cols-[1fr_130px]">
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">{ward.beds.slice(0, half).map(card)}</div>
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-500 flex items-center gap-2">
-              <span className="font-semibold">Aisle</span>
-              {walkway && (
-                <span className="inline-flex items-center gap-1">
-                  <Radar className="w-3 h-3 text-indigo-500" /> {DEVICE_LABEL[walkway.device_type]}
+        <div className="p-4 space-y-3">
+          {/* Even grid: every bed card keeps a usable width and wraps cleanly. */}
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">{ward.beds.map(card)}</div>
+          {(bathroom || walkway) && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-[11px] text-slate-600">
+              {bathroom && (
+                <span className="inline-flex items-center gap-1.5">
+                  <ShowerHead className="w-3.5 h-3.5 text-sky-600" /> Shared bathroom ·
+                  <Radar className="w-3 h-3 text-indigo-500" /> {DEVICE_LABEL[bathroom.device_type]}
                 </span>
               )}
-            </div>
-            {ward.beds.length > half && <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">{ward.beds.slice(half).map(card)}</div>}
-          </div>
-          <div className="rounded-2xl border-2 border-slate-200 bg-sky-50/50 p-3 flex lg:flex-col items-center justify-center gap-2 text-center">
-            <ShowerHead className="w-6 h-6 text-sky-600" />
-            <div>
-              <div className="text-sm font-bold">Shared bathroom</div>
-              {bathroom && (
-                <div className="text-[11px] text-indigo-700 inline-flex items-center gap-1">
-                  <Radar className="w-3 h-3" /> {DEVICE_LABEL[bathroom.device_type]}
-                </div>
+              {walkway && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Radar className="w-3 h-3 text-indigo-500" /> Aisle · {DEVICE_LABEL[walkway.device_type]}
+                </span>
               )}
+              <span className="inline-flex items-center gap-1.5">
+                <BedDouble className="w-3.5 h-3.5 text-slate-400" /> Bed-exit mat on each bed
+              </span>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -298,14 +294,9 @@ export default function WardBoard({
         <span className="inline-flex items-center gap-1">
           <QrIcon className="w-3.5 h-3.5" /> Or scan a bed&apos;s QR tag with the phone camera
         </span>
-        <span className="inline-flex items-center gap-3 ml-auto">
-          <Link href="/staff/night-monitor" className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline">
-            <Moon className="w-3.5 h-3.5" /> Night sensors
-          </Link>
-          <Link href="/staff/sensor-lab" className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline">
-            <Radar className="w-3.5 h-3.5" /> Radar lab
-          </Link>
-        </span>
+        <Link href="/staff/night-monitor" className="ml-auto inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline">
+          <Moon className="w-3.5 h-3.5" /> Ward sensors (simulated)
+        </Link>
       </div>
     </section>
   );

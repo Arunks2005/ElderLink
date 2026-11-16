@@ -32,28 +32,24 @@ function AnomalyCard({ r }: { r: ResidentReport }) {
   const first = r.patterns[0];
   const action = r.topActions[0];
   return (
-    <li className="rounded-2xl border border-slate-100 bg-white p-3">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-bold text-sm text-slate-900">{r.name}</span>
-            {chip && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${chip.cls}`}>{chip.label}</span>}
-          </div>
-          {r.room && <div className="text-[11px] text-slate-500">{r.room}</div>}
-          <p className="text-xs text-slate-700 mt-1">{first ? first.title : r.summary}</p>
-          {action && <p className="text-xs text-[#357366] font-medium mt-1">→ {action}</p>}
-        </div>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="p-1 rounded-lg text-slate-400 hover:bg-slate-50"
-          aria-expanded={open}
-          aria-label={open ? "Hide details" : "Why?"}
-        >
-          {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-      </div>
+    <li className="py-2">
+      <button onClick={() => setOpen((o) => !o)} className="w-full text-left flex items-start gap-2" aria-expanded={open}>
+        <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${r.status === "act" ? "bg-red-500" : "bg-amber-400"}`} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="font-bold text-sm text-slate-900 truncate">{r.name}</span>
+            {chip && <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${chip.cls}`}>{chip.label}</span>}
+          </span>
+          <span className="block text-[11px] text-slate-500 truncate">
+            {r.room ? `${r.room} · ` : ""}
+            {first ? first.title : r.summary}
+          </span>
+        </span>
+        {open ? <ChevronUp className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" /> : <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />}
+      </button>
       {open && (
-        <div className="mt-2 space-y-2 text-xs">
+        <div className="mt-2 ml-4 space-y-2 text-xs">
+          {action && <p className="text-[#357366] font-semibold">→ {action}</p>}
           {r.patterns.length > 0 ? (
             r.patterns.map((p) => (
               <div key={p.id} className="rounded-xl bg-slate-50 p-2">
@@ -110,6 +106,7 @@ export default function BehaviourPanel({
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const lastPersist = useRef(0);
   const inFlight = useRef(false);
 
@@ -180,12 +177,12 @@ export default function BehaviourPanel({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          Live · care logs + night sensors · each resident vs their 1-week normal
+          Live · vs each resident&apos;s 1-week normal
           {lastRun ? ` · ${lastRun}` : ""}
         </p>
       </div>
 
-      <div className="p-4 space-y-3">
+      <div className="px-4 py-3 space-y-2">
         {!report && !error ? (
           <div className="flex items-center gap-2 text-sm text-slate-500 py-6 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" /> Analysing…
@@ -204,13 +201,18 @@ export default function BehaviourPanel({
         ) : (
           <>
             <p className="text-xs font-semibold text-slate-600">
-              {anomalies.length} resident{anomalies.length === 1 ? " differs" : "s differ"} from their normal
+              {anomalies.length} resident{anomalies.length === 1 ? " differs" : "s differ"} from their normal · tap for why
             </p>
-            <ul className="space-y-2">
-              {anomalies.map((r) => (
+            <ul className="divide-y divide-slate-100">
+              {(showAll ? anomalies : anomalies.slice(0, 5)).map((r) => (
                 <AnomalyCard key={r.resident_id} r={r} />
               ))}
             </ul>
+            {anomalies.length > 5 && (
+              <button onClick={() => setShowAll((s) => !s)} className="text-xs font-semibold text-indigo-700 hover:underline">
+                {showAll ? "Show fewer" : `Show all ${anomalies.length}`}
+              </button>
+            )}
           </>
         )}
         {error && report && <p className="text-[11px] text-red-600">Last update failed: {error}</p>}
