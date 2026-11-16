@@ -1,7 +1,7 @@
 import Groq from "groq-sdk";
 
 // Reads GROQ_API_KEY from process.env automatically.
-// Make sure GROQ_API_KEY is set in .env.local (see .env.local.example)
+// Make sure GROQ_API_KEY is set in .env.local (see .env.example)
 export const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
