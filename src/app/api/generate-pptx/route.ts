@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PptxGenJS from "pptxgenjs";
 import { groq, BEHAVIORAL_MODEL } from "@/lib/groq";
+import { requireCareRole } from "@/lib/auth/require-care-role";
 
 // ---------------------------------------------------------------------------
 // /api/generate-pptx
@@ -130,6 +131,10 @@ function safeFilename(title: string | undefined): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Paid LLM call: signed-in care staff only.
+  const auth = await requireCareRole();
+  if (!auth.ok) return auth.response;
+
   try {
     const { content, title } = (await req.json()) as { content?: string; title?: string };
 

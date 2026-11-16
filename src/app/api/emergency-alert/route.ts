@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import twilio from "twilio";
+import { requireCareRole } from "@/lib/auth/require-care-role";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,6 +14,11 @@ const twilioClient = twilio(
 );
 
 export async function POST(req: NextRequest) {
+  // Only signed-in care staff (staff or admin) may send SOS messages and
+  // phone calls to families. Previously anyone could call this route.
+  const auth = await requireCareRole();
+  if (!auth.ok) return auth.response;
+
   try {
     const { residentId, alertType, channels } = await req.json();
     const requestedChannels: string[] =
@@ -112,12 +118,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await supabase.from("emergency_alerts").insert({
+    // emergency_alerts columns: resident_id, raised_by (FK staff), type,
+    // status ('open' | 'acknowledged' | 'resolved'), created_at, resolved_at.
+    const { error: logError } = await supabase.from("emergency_alerts").insert({
       resident_id: residentId,
-      alert_type: alertType,
-      sms_sent: sentChannels.includes("sms"),
-      resolved: false,
+      type: String(alertType).slice(0, 60),
+      status: "open",
+      raised_by: auth.role === "staff" ? auth.userId : null,
     });
+    if (logError) console.error("Could not record emergency alert:", logError.message);
 
     return NextResponse.json({
       success: true,

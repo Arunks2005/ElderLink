@@ -9,12 +9,15 @@ import {
   runEarlyWarning,
   toBehaviorAlertRows,
   WINDOW_DAYS,
+  type CareLogInput,
   type FacilityReport,
   type FamilyContactInput,
   type FamilyMessageInput,
   type ResidentInput,
 } from "@/lib/early-warning/engine";
-import type { CareLogWithVitals } from "@/lib/early-warning/aggregates";
+
+
+type CareLogWithVitals = CareLogInput & { systolic?: number | null };
 
 export type Supa = Awaited<ReturnType<typeof createClient>>;
 

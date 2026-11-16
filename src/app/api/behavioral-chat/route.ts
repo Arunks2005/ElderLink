@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
+import { requireCareRole } from "@/lib/auth/require-care-role";
 
 /**
  * ElderAI /api/behavioral-chat
@@ -1139,6 +1140,11 @@ async function generateAnswerWithRouting(
 }
 
 export async function POST(req: NextRequest) {
+  // This route reads the database with the service-role key, so it must
+  // only ever answer signed-in care staff (staff or admin).
+  const auth = await requireCareRole();
+  if (!auth.ok) return auth.response;
+
   try {
     const body = (await req.json()) as {
       messages?: ChatMessage[];

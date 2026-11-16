@@ -830,7 +830,7 @@ export default function CareDashboardPage() {
       }
       setAnalysisMsg(
         `Analysed ${json.logsUsed} care logs at ${new Date(json.analysedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` +
-          ` · ${json.aggregatesUpdated + json.aggregatesInserted} daily rows refreshed` +
+          (json.aggregatesRefreshed != null ? ` · ${json.aggregatesRefreshed} resident-days refreshed` : "") +
           ` · ${json.alertsInserted} new alert${json.alertsInserted === 1 ? "" : "s"}` +
           (json.residentsLearning ? ` · ${json.residentsLearning} resident(s) still building a baseline` : "") +
           (json.logsExcluded ? ` · ${json.logsExcluded} simulated entries excluded` : "")

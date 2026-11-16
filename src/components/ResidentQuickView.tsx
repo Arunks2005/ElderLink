@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * Quick view of one resident for staff: medical and dietary notes, the
+ * primary family contact and the latest care logs.
+ *
+ * Reads only columns that exist in the live schema (residents,
+ * family_contacts, care_logs_demo). There is no medications table, so the
+ * medication picture comes from the "Medication" outcome on recent care logs.
+ */
+
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -10,19 +19,28 @@ type Resident = {
   photo_url: string | null;
 };
 
-type MedicalInfo = {
-  conditions: string | null;
-  allergies: string | null;
-  mobility_notes: string | null;
-  emergency_contact_name: string | null;
-  emergency_contact_phone: string | null;
+type ResidentDetails = {
+  dob: string | null;
+  medical_notes: string | null;
+  dietary_needs: string | null;
+  status: string | null;
 };
 
-type Medication = {
+type Contact = {
+  full_name: string;
+  relationship: string | null;
+  phone: string | null;
+};
+
+type RecentLog = {
   id: string;
-  name: string;
-  dosage: string | null;
-  time_slots: string[] | null;
+  created_at: string;
+  meals: string | null;
+  fluids: string | null;
+  mood: string | null;
+  medication: string | null;
+  notes: string | null;
+  entry_source: string | null;
 };
 
 export default function ResidentQuickView({
@@ -33,81 +51,52 @@ export default function ResidentQuickView({
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
-  const [medical, setMedical] = useState<MedicalInfo | null>(null);
-  const [medications, setMedications] = useState<Medication[]>([]);
-  const [recentLogs, setRecentLogs] = useState<
-    { id: string; note: string | null; created_at: string }[]
-  >([]);
+  const [details, setDetails] = useState<ResidentDetails | null>(null);
+  const [contact, setContact] = useState<Contact | null>(null);
+  const [recentLogs, setRecentLogs] = useState<RecentLog[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [age, setAge] = useState<number | null>(null);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-
-      // ASSUMPTION: residents table has these medical-context columns, or
-      // you split them into a `resident_medical_info` table — adjust the
-      // select below to match. Wrapped so missing columns don't crash it.
-      const medicalPromise = supabase
-        .from("residents")
-        .select(
-          "conditions, allergies, mobility_notes, emergency_contact_name, emergency_contact_phone",
-        )
-        .eq("id", resident.id)
-        .single();
-
-      // ASSUMPTION: a `medications` table (see schema in chat). Falls back
-      // to an empty list if it doesn't exist yet.
-      const medsPromise = supabase
-        .from("medications")
-        .select("id, name, dosage, time_slots")
-        .eq("resident_id", resident.id)
-        .eq("active", true);
-
-      const logsPromise = supabase
-        .from("care_logs")
-        .select("id, note, created_at")
-        .eq("resident_id", resident.id)
-        .order("created_at", { ascending: false })
-        .limit(3);
-
-      const [medicalResult, medsResult, logsResult] = await Promise.all([
-        medicalPromise.then(
-          (r) => r,
-          () => ({ data: null }),
-        ),
-        medsPromise.then(
-          (r) => r,
-          () => ({ data: [] }),
-        ),
-        logsPromise.then(
-          (r) => r,
-          () => ({ data: [] }),
-        ),
+      const [detailsRes, contactRes, logsRes] = await Promise.all([
+        supabase
+          .from("residents")
+          .select("dob, medical_notes, dietary_needs, status")
+          .eq("id", resident.id)
+          .maybeSingle(),
+        supabase
+          .from("family_contacts")
+          .select("full_name, relationship, phone, is_primary")
+          .eq("resident_id", resident.id)
+          .order("is_primary", { ascending: false })
+          .limit(1),
+        supabase
+          .from("care_logs_demo")
+          .select("id, created_at, meals, fluids, mood, medication, notes, entry_source")
+          .eq("resident_id", resident.id)
+          .order("created_at", { ascending: false })
+          .limit(3),
       ]);
 
-      if (medicalResult && "data" in medicalResult && medicalResult.data) {
-        setMedical(medicalResult.data as MedicalInfo);
-      }
-      if (medsResult && "data" in medsResult && medsResult.data) {
-        setMedications(medsResult.data as Medication[]);
-      }
-      if (logsResult && "data" in logsResult && logsResult.data) {
-        setRecentLogs(logsResult.data);
-      }
+      const problems: string[] = [];
+      if (detailsRes.error) problems.push("resident details");
+      if (contactRes.error) problems.push("family contact");
+      if (logsRes.error) problems.push("care logs");
+      setLoadError(problems.length ? `Could not load ${problems.join(", ")}.` : null);
+
+      const d = (detailsRes.data as ResidentDetails | null) ?? null;
+      setDetails(d);
+      setAge(d?.dob ? Math.floor((Date.now() - new Date(d.dob).getTime()) / (365.25 * 86_400_000)) : null);
+      setContact(((contactRes.data ?? [])[0] as Contact | undefined) ?? null);
+      setRecentLogs((logsRes.data as RecentLog[] | null) ?? []);
       setLoading(false);
     }
     load();
   }, [resident.id]);
 
-  function isDueSoon(slots: string[] | null) {
-    if (!slots || slots.length === 0) return false;
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    return slots.some((slot) => {
-      const [h, m] = slot.split(":").map(Number);
-      const slotMinutes = h * 60 + m;
-      return Math.abs(nowMinutes - slotMinutes) <= 30;
-    });
-  }
+  const missedMeds = recentLogs.filter((l) => l.medication === "Refused" || l.medication === "Missed").length;
 
   return (
     <div
@@ -120,13 +109,11 @@ export default function ResidentQuickView({
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="font-bold text-gray-900 text-lg">
-              {resident.full_name}
-            </h2>
+            <h2 className="font-bold text-gray-900 text-lg">{resident.full_name}</h2>
             <p className="text-sm text-gray-400">
-              {resident.room_number
-                ? `Room ${resident.room_number}`
-                : "No room assigned"}
+              {resident.room_number ? `Room ${resident.room_number}` : "No room assigned"}
+              {age && age > 0 ? ` · ${age} yrs` : ""}
+              {details?.status && details.status !== "active" ? ` · ${details.status.replace(/_/g, " ")}` : ""}
             </p>
           </div>
           <button
@@ -138,101 +125,64 @@ export default function ResidentQuickView({
         </div>
 
         {loading ? (
-          <div className="py-10 text-center text-sm text-gray-400">
-            Loading...
-          </div>
+          <div className="py-10 text-center text-sm text-gray-400">Loading...</div>
         ) : (
           <div className="space-y-5">
-            {/* Medications */}
-            <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                Medications
-              </h3>
-              {medications.length === 0 ? (
-                <p className="text-sm text-gray-400">No medications on file.</p>
-              ) : (
-                <div className="space-y-2">
-                  {medications.map((m) => {
-                    const due = isDueSoon(m.time_slots);
-                    return (
-                      <div
-                        key={m.id}
-                        className={`flex items-center justify-between px-3 py-2 rounded-lg border text-sm ${
-                          due
-                            ? "border-amber-200 bg-amber-50"
-                            : "border-gray-100"
-                        }`}
-                      >
-                        <div>
-                          <p className="font-medium text-gray-800">
-                            {m.name}
-                            {m.dosage ? ` · ${m.dosage}` : ""}
-                          </p>
-                          {m.time_slots && m.time_slots.length > 0 && (
-                            <p className="text-xs text-gray-400">
-                              {m.time_slots.join(", ")}
-                            </p>
-                          )}
-                        </div>
-                        {due && (
-                          <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">
-                            DUE
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            {loadError && <p className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">{loadError}</p>}
 
-            {/* Medical context */}
             <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                Medical context
-              </h3>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Medical context</h3>
               <div className="space-y-2 text-sm text-gray-700">
-                <InfoRow label="Conditions" value={medical?.conditions} />
-                <InfoRow label="Allergies" value={medical?.allergies} />
-                <InfoRow
-                  label="Mobility notes"
-                  value={medical?.mobility_notes}
-                />
+                <InfoRow label="Medical notes" value={details?.medical_notes} />
+                <InfoRow label="Dietary needs" value={details?.dietary_needs} />
               </div>
             </section>
 
-            {/* Emergency contact */}
             <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                Emergency contact
-              </h3>
-              {medical?.emergency_contact_name ? (
-                <p className="text-sm text-gray-700">
-                  {medical.emergency_contact_name}
-                  {medical.emergency_contact_phone
-                    ? ` · ${medical.emergency_contact_phone}`
-                    : ""}
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Medication (recent logs)</h3>
+              {recentLogs.length === 0 ? (
+                <p className="text-sm text-gray-400">No recent care logs.</p>
+              ) : missedMeds > 0 ? (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  {missedMeds} of the last {recentLogs.length} logs recorded a refused or missed dose.
                 </p>
               ) : (
-                <p className="text-sm text-gray-400">Not on file.</p>
+                <p className="text-sm text-gray-700">Given as scheduled in the last {recentLogs.length} logs.</p>
               )}
             </section>
 
-            {/* Recent care logs */}
             <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                Recent care logs
-              </h3>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Family contact</h3>
+              {contact ? (
+                <p className="text-sm text-gray-700">
+                  {contact.full_name}
+                  {contact.relationship ? ` (${contact.relationship})` : ""}
+                  {contact.phone ? ` · ${contact.phone}` : ""}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400">No family contact registered.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recent care logs</h3>
               {recentLogs.length === 0 ? (
                 <p className="text-sm text-gray-400">No entries yet.</p>
               ) : (
                 <div className="space-y-2">
                   {recentLogs.map((l) => (
-                    <div
-                      key={l.id}
-                      className="text-sm text-gray-700 border-l-2 border-gray-200 pl-3"
-                    >
-                      <p>{l.note || "Care logged, no note added."}</p>
+                    <div key={l.id} className="text-sm text-gray-700 border-l-2 border-gray-200 pl-3">
+                      <p>
+                        {[
+                          l.meals && `Meals: ${l.meals}`,
+                          l.fluids && `Fluids: ${l.fluids}`,
+                          l.mood && `Mood: ${l.mood}`,
+                          l.medication && `Meds: ${l.medication}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "Care logged"}
+                      </p>
+                      {l.notes && <p className="text-xs text-gray-600 mt-0.5">{l.notes}</p>}
                       <p className="text-xs text-gray-400">
                         {new Date(l.created_at).toLocaleString("en-GB", {
                           hour: "2-digit",
@@ -240,6 +190,7 @@ export default function ResidentQuickView({
                           day: "2-digit",
                           month: "short",
                         })}
+                        {l.entry_source && l.entry_source !== "manual" ? " · simulated" : ""}
                       </p>
                     </div>
                   ))}
@@ -253,17 +204,11 @@ export default function ResidentQuickView({
   );
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
+function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="flex gap-2">
       <span className="text-gray-400 min-w-[110px] flex-shrink-0">{label}</span>
-      <span>{value || "None on file"}</span>
+      <span className="whitespace-pre-wrap">{value || "None on file"}</span>
     </div>
   );
 }

@@ -57,8 +57,9 @@ interface CareLog {
   meals: string | null;
   fluids: string | null;
   mood: string | null;
-  mobility: string | null;
-  medication_status: string | null;
+  medication: string | null;
+  pain_scale: number | null;
+  entry_source: string | null;
   notes: string | null;
   staff: { full_name: string } | null;
 }
@@ -153,7 +154,8 @@ export default function ResidentProfilePage() {
       supabase.from('residents').select('*').eq('id', id).single(),
       supabase.from('family_contacts').select('*').eq('resident_id', id).order('is_primary', { ascending: false }),
       supabase
-        .from('care_logs')
+        // care_logs_demo is the table staff write to (there is no care_logs table).
+        .from('care_logs_demo')
         .select('*, staff:staff_id(full_name)')
         .eq('resident_id', id)
         .order('created_at', { ascending: false }),
@@ -677,10 +679,13 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
       <TimelineRow icon={ClipboardList} color="#4F9C8B" label="Care log" when={item.created_at} staff={item.staffName}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1.5">
           {d.mood && <span><b className="text-gray-800">Mood:</b> {d.mood}</span>}
-          {d.mobility && <span><b className="text-gray-800">Mobility:</b> {d.mobility}</span>}
           {d.meals && <span><b className="text-gray-800">Meals:</b> {d.meals}</span>}
           {d.fluids && <span><b className="text-gray-800">Fluids:</b> {d.fluids}</span>}
-          {d.medication_status && <span className="col-span-2"><b className="text-gray-800">Medication:</b> {d.medication_status}</span>}
+          {d.medication && <span><b className="text-gray-800">Medication:</b> {d.medication}</span>}
+          {d.pain_scale != null && <span><b className="text-gray-800">Pain:</b> {d.pain_scale}/10</span>}
+          {d.entry_source && d.entry_source !== 'manual' && (
+            <span className="col-span-2 text-amber-700"><b>Source:</b> {d.entry_source === 'demo' ? 'Demo data' : 'Simulated sensor'}</span>
+          )}
         </div>
         {d.notes && <p className="text-sm text-gray-700 mt-2">{d.notes}</p>}
       </TimelineRow>

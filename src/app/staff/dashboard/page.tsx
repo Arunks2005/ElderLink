@@ -100,11 +100,12 @@ export default function StaffDashboard() {
 
       const todayStart = startOfTodayISO();
 
+      // Staff names live in the staff table (profiles is unused/empty).
       const profilePromise = supabase
-        .from("profiles")
+        .from("staff")
         .select("full_name")
         .eq("id", u.id)
-        .single();
+        .maybeSingle();
 
       const residentsPromise = supabase
         .from("residents")

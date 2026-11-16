@@ -9,6 +9,9 @@ export default function FallDetectionPage() {
   const [residents, setResidents] = useState([]);
   const [selectedResidentId, setSelectedResidentId] = useState("");
   const [residentsLoading, setResidentsLoading] = useState(true);
+  // Residents and fall events are only visible to signed-in care staff
+  // (row-level security), so the detector phone must be logged in.
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const [monitoring, setMonitoring] = useState(false);
   const [magnitude, setMagnitude] = useState(null);
@@ -82,7 +85,14 @@ export default function FallDetectionPage() {
 
   useEffect(() => {
     async function loadResidents() {
-      setResidentsLoading(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setNeedsLogin(true);
+        setResidentsLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from("residents")
@@ -574,6 +584,22 @@ export default function FallDetectionPage() {
   // ---------------------------------------------------------
   // UI
   // ---------------------------------------------------------
+
+  if (needsLogin) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "Inter, system-ui, sans-serif", background: "#f5f7fb" }}>
+        <div style={{ background: "white", borderRadius: 16, padding: 24, maxWidth: 420, textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Sign in to use fall detection</h1>
+          <p style={{ fontSize: 14, color: "#4b5563", marginBottom: 16 }}>
+            This phone must be signed in with a staff account so it can see residents and raise fall alerts.
+          </p>
+          <a href="/login" style={{ display: "inline-block", background: "#357366", color: "white", padding: "10px 18px", borderRadius: 12, fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
+            Staff sign in
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
