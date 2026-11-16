@@ -109,7 +109,9 @@ export default function StaffDashboard() {
         .order("full_name");
 
       const careLogsPromise = supabase
-        .from("care_logs")
+        // Staff write care logs to care_logs_demo (see the log page), so the
+        // "logged today" counter must read the same table.
+        .from("care_logs_demo")
         .select("resident_id")
         .gte("created_at", todayStart);
 

@@ -24,8 +24,11 @@ import {
   ChevronUp,
   AlertTriangle,
   ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
+
+const LAST_ANALYSIS_KEY = "elderlink_last_behavior_analysis";
 
 // ---------- types ----------
 // Current daily_aggregates behavioral and care-score fields.
@@ -63,6 +66,7 @@ type BehaviorAlert = {
   severity: string | null;
   message: string;
   resolved: boolean;
+  resolved_note?: string | null;
   created_at: string;
 };
 
@@ -564,10 +568,12 @@ function AlertsPanel({
   onClose: () => void;
   alerts: BehaviorAlert[];
   loading: boolean;
-  onResolve: (id: string) => void;
+  onResolve: (id: string, note: string) => void;
   resolvingId: string | null;
 }) {
   const [search, setSearch] = useState("");
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
   const [statusFilter, setStatusFilter] = useState<"unresolved" | "resolved" | "all">("unresolved");
 
   const filtered = useMemo(() => {
@@ -677,9 +683,51 @@ function AlertsPanel({
                     month: "short",
                   })}
                 </p>
-                {!a.resolved && (
+                {a.resolved && a.resolved_note && (
+                  <p className="mt-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                    <span className="font-semibold">Action taken:</span> {a.resolved_note}
+                  </p>
+                )}
+                {!a.resolved && noteFor === a.id && (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      rows={2}
+                      autoFocus
+                      placeholder="What did you do? e.g. Offered fluids hourly, nurse checked temperature"
+                      className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#4F9C8B]"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          onResolve(a.id, noteText.trim());
+                          setNoteFor(null);
+                          setNoteText("");
+                        }}
+                        disabled={noteText.trim().length < 3 || resolvingId === a.id}
+                        className="inline-flex items-center gap-1.5 bg-[#357366] hover:bg-[#2b5e53] text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-3 h-3" /> Save &amp; resolve
+                      </button>
+                      <button
+                        onClick={() => {
+                          setNoteFor(null);
+                          setNoteText("");
+                        }}
+                        className="text-[11px] font-semibold text-gray-500 px-2"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {!a.resolved && noteFor !== a.id && (
                   <button
-                    onClick={() => onResolve(a.id)}
+                    onClick={() => {
+                      setNoteFor(a.id);
+                      setNoteText("");
+                    }}
                     disabled={resolvingId === a.id}
                     className="mt-2 inline-flex items-center gap-1.5 bg-[#357366] hover:bg-[#2b5e53] text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg disabled:opacity-50"
                   >
@@ -710,6 +758,8 @@ export default function CareDashboardPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<BehaviorAlert[]>([]);
   const [search, setSearch] = useState("");
+  const [analysing, setAnalysing] = useState(false);
+  const [analysisMsg, setAnalysisMsg] = useState<string | null>(null);
 
   const loadAggregates = useCallback(async () => {
     const supabase = createClient();
@@ -753,7 +803,7 @@ export default function CareDashboardPage() {
     const { data, error } = await supabase
       .from("behavior_alerts")
       .select(
-        "id, resident_id, resident_name, room, metric, baseline_mean, recent_mean, z_score, severity, message, resolved, created_at"
+        "id, resident_id, resident_name, room, metric, baseline_mean, recent_mean, z_score, severity, message, resolved, resolved_note, created_at"
       )
       .order("created_at", { ascending: false });
 
@@ -766,10 +816,45 @@ export default function CareDashboardPage() {
     setLoadingAlerts(false);
   }, []);
 
+  // Runs the in-app behaviour-analysis pipeline: rebuilds daily_aggregates
+  // from real care logs, then raises personal-baseline alerts.
+  const runAnalysis = useCallback(async () => {
+    try {
+      const res = await fetch("/api/behavior-analysis", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `Analysis failed (${res.status})`);
+      try {
+        localStorage.setItem(LAST_ANALYSIS_KEY, String(Date.now()));
+      } catch {
+        /* storage unavailable: auto-run will simply repeat next visit */
+      }
+      setAnalysisMsg(
+        `Analysed ${json.logsUsed} care logs at ${new Date(json.analysedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` +
+          ` · ${json.aggregatesUpdated + json.aggregatesInserted} daily rows refreshed` +
+          ` · ${json.alertsInserted} new alert${json.alertsInserted === 1 ? "" : "s"}` +
+          (json.residentsLearning ? ` · ${json.residentsLearning} resident(s) still building a baseline` : "") +
+          (json.logsExcluded ? ` · ${json.logsExcluded} simulated entries excluded` : "")
+      );
+      await Promise.all([loadAggregates(), loadAlerts()]);
+    } catch (e) {
+      setAnalysisMsg(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setAnalysing(false);
+    }
+  }, [loadAggregates, loadAlerts]);
+
   useEffect(() => {
     loadAggregates();
     loadAlerts();
-  }, [loadAggregates, loadAlerts]);
+    // Auto-run the analysis at most once an hour per browser.
+    let last = 0;
+    try {
+      last = Number(localStorage.getItem(LAST_ANALYSIS_KEY) || 0);
+    } catch {
+      last = 0;
+    }
+    if (Date.now() - last > 60 * 60 * 1000) runAnalysis();
+  }, [loadAggregates, loadAlerts, runAnalysis]);
 
   // realtime: aggregates refresh the grid, new alerts pop a toast + badge
   useEffect(() => {
@@ -798,21 +883,32 @@ export default function CareDashboardPage() {
     };
   }, [loadAggregates]);
 
-  async function handleResolve(id: string) {
+  async function handleResolve(id: string, note: string) {
     setResolvingId(id);
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     // behavior_alerts has no resolved_at column — only resolved, resolved_by,
-    // resolved_note. Writing resolved_at here previously threw a Postgrest
-    // "column does not exist" error on every click.
-    const { error } = await supabase
+    // resolved_note. Record who resolved it and what was done (audit trail).
+    let { error } = await supabase
       .from("behavior_alerts")
-      .update({ resolved: true })
+      .update({ resolved: true, resolved_by: user?.id ?? null, resolved_note: note })
       .eq("id", id);
+    if (error) {
+      // resolved_by may be typed differently in some databases. Keep the note.
+      ({ error } = await supabase
+        .from("behavior_alerts")
+        .update({ resolved: true, resolved_note: note })
+        .eq("id", id));
+    }
     setResolvingId(null);
     if (!error) {
-      setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, resolved: true } : a)));
+      setAlerts((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, resolved: true, resolved_note: note } : a))
+      );
     } else {
-      console.error("Failed to resolve alert:", error.message);
+      setAnalysisMsg(`Could not resolve alert: ${error.message}`);
     }
   }
 
@@ -849,6 +945,18 @@ export default function CareDashboardPage() {
           <h1 className="font-bold text-lg text-[#1F2937] tracking-tight">Care Dashboard</h1>
 
           <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={() => {
+                setAnalysing(true);
+                runAnalysis();
+              }}
+              disabled={analysing}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#357366] hover:bg-[#2b5e53] px-3.5 py-2 rounded-xl disabled:opacity-60"
+              title="Rebuild daily scores from care logs and check every resident against their own baseline"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${analysing ? "animate-spin" : ""}`} />
+              <span>{analysing ? "Analysing…" : "Analyse now"}</span>
+            </button>
             <div className="relative hidden sm:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
               <input
@@ -874,10 +982,19 @@ export default function CareDashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {analysisMsg && (
+          <div className="mb-5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-600 flex flex-wrap items-center gap-2">
+            <ActivityIcon className="w-3.5 h-3.5 text-[#4F9C8B]" />
+            <span>{analysisMsg}</span>
+            <Link href="/staff/early-warning" className="ml-auto font-semibold text-[#357366] hover:underline">
+              Open care rounds →
+            </Link>
+          </div>
+        )}
         {loadingAggregates ? (
           <div className="py-16 text-center flex flex-col items-center gap-2">
             <Loader2 className="w-7 h-7 text-[#4F9C8B] animate-spin" />
-            <p className="text-xs font-bold text-gray-400">Loading today's care aggregates...</p>
+            <p className="text-xs font-bold text-gray-400">Loading today&apos;s care aggregates...</p>
           </div>
         ) : filteredGroups.length === 0 ? (
           <div className="flex flex-col items-center gap-2.5 py-16 border border-dashed border-gray-200 rounded-2xl bg-white">

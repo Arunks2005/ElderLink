@@ -73,6 +73,8 @@ export type EngineInput = {
    * cannot create or hide a flag.
    */
   allowedSources?: string[];
+  /** IANA zone for calendar days, e.g. "Asia/Kolkata". Default: machine local time. */
+  timeZone?: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -334,15 +336,38 @@ export const METRICS: MetricDef[] = [
 
 const DAY_MS = 86_400_000;
 
-function startOfDay(d: Date) {
-  const c = new Date(d);
-  c.setHours(0, 0, 0, 0);
-  return c.getTime();
+/**
+ * Calendar day used for "today / yesterday". Set per run from
+ * EngineInput.timeZone so a server running in UTC still uses the care
+ * home's local days (e.g. Asia/Kolkata). Undefined = the machine's local time.
+ */
+let activeTimeZone: string | undefined;
+
+/** YYYY-MM-DD for an instant, in the given IANA time zone (or local time). */
+export function dateKey(d: Date | string, timeZone?: string): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (!timeZone) {
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${m}-${day}`;
+  }
+  // en-CA formats as YYYY-MM-DD
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
-/** 0 = today, 1 = yesterday … based on local calendar days. */
-export function daysAgo(iso: string, now: Date): number {
-  return Math.round((startOfDay(now) - startOfDay(new Date(iso))) / DAY_MS);
+function dayNumber(d: Date | string, timeZone?: string) {
+  const [y, m, day] = dateKey(d, timeZone).split("-").map(Number);
+  return Date.UTC(y, m - 1, day) / DAY_MS;
+}
+
+/** 0 = today, 1 = yesterday … based on calendar days in the active time zone. */
+export function daysAgo(iso: string, now: Date, timeZone: string | undefined = activeTimeZone): number {
+  return dayNumber(now, timeZone) - dayNumber(iso, timeZone);
 }
 
 function mean(xs: number[]) {
@@ -635,6 +660,7 @@ function analyseConnection(
 
 export function runEarlyWarning(input: EngineInput): FacilityReport {
   const now = input.now ?? new Date();
+  activeTimeZone = input.timeZone;
   const allowed = new Set((input.allowedSources ?? ["manual"]).map((s) => s.toLowerCase()));
   const contacts = input.familyContacts ?? [];
   const messages = input.familyMessages ?? [];

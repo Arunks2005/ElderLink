@@ -135,3 +135,46 @@ test("false-alarm rate on stable simulated residents is low", () => {
   console.log(`  stable residents flagged 'act today': ${flagged}/300 (${(rate * 100).toFixed(1)}%)`);
   assert.ok(rate < 0.05, `false 'act today' rate too high: ${rate}`);
 });
+
+// ---------------------------------------------------------------------------
+// daily_aggregates builder
+// ---------------------------------------------------------------------------
+import { buildDailyAggregates } from "../src/lib/early-warning/aggregates.ts";
+import { dateKey, daysAgo } from "../src/lib/early-warning/engine.ts";
+
+test("daily aggregates use the Behaviour Alerts scales (0–10 and 0–100)", () => {
+  const cohort = buildDemoCohort(NOW);
+  const rows = buildDailyAggregates({ residents: cohort.residents, logs: cohort.logs });
+  assert.ok(rows.length > 100);
+  for (const r of rows) {
+    for (const k of ["meal_score", "fluid_score", "mood_score"]) {
+      if (r[k] !== null) assert.ok(r[k] >= 0 && r[k] <= 10, `${k}=${r[k]}`);
+    }
+    if (r.medication_adherence !== null) assert.ok(r.medication_adherence >= 0 && r.medication_adherence <= 100);
+    assert.match(r.date, /^\d{4}-\d{2}-\d{2}$/);
+  }
+  // one row per resident per day
+  const keys = new Set(rows.map((r) => `${r.resident_id}|${r.date}`));
+  assert.equal(keys.size, rows.length);
+});
+
+test("daily aggregates skip simulated entries and never emit sensor columns", () => {
+  const logs = [
+    { resident_id: "a", created_at: "2026-11-10T09:00:00Z", meals: "Refused", fluids: "None", mood: "Confused", medication: "Missed", entry_source: "sensor" },
+    { resident_id: "a", created_at: "2026-11-10T10:00:00Z", meals: "Ate Fully", fluids: "Good", mood: "Happy", medication: "Given", entry_source: "manual" },
+  ];
+  const rows = buildDailyAggregates({ residents: [{ id: "a", full_name: "A" }], logs, timeZone: "Asia/Kolkata" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].meal_score, 10);
+  assert.equal(rows[0].medication_adherence, 100);
+  for (const k of ["sleep_hours", "washroom_visits", "sleep_disturbed", "activity_detail"]) assert.ok(!(k in rows[0]));
+});
+
+test("calendar days follow the care home's time zone, not the server's", () => {
+  // 20:00 UTC on the 15th is 01:30 on the 16th in India.
+  assert.equal(dateKey("2026-11-15T20:00:00Z", "Asia/Kolkata"), "2026-11-16");
+  assert.equal(dateKey("2026-11-15T20:00:00Z", "UTC"), "2026-11-15");
+  const now = new Date("2026-11-16T06:00:00Z");
+  assert.equal(daysAgo("2026-11-15T20:00:00Z", now, "Asia/Kolkata"), 0);
+  assert.equal(daysAgo("2026-11-15T20:00:00Z", now, "UTC"), 1);
+});
