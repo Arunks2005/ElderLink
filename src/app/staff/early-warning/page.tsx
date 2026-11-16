@@ -84,6 +84,9 @@ const fmt = (s: SignalResult, v: number | null) => {
   if (s.key === "temperature") return `${v.toFixed(1)}°F`;
   if (s.key === "pain") return `${v.toFixed(1)}/10`;
   if (s.key === "heart_rate") return `${Math.round(v)}`;
+  if (s.key === "sleep_hours") return `${v.toFixed(1)} h`;
+  if (s.key === "washroom_visits" || s.key === "night_bed_exits") return `${v.toFixed(1)}/night`;
+  if (s.key === "night_breathing") return `${v.toFixed(1)}/min`;
   return `${Math.round(v)}%`;
 };
 
@@ -288,7 +291,7 @@ function ResidentCard({
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-bold text-gray-900">{r.name}</span>
-            {r.room && <span className="text-xs text-gray-500">Room {r.room}</span>}
+            {r.room && <span className="text-xs text-gray-500">{r.room}</span>}
             <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 ${meta.cls}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
               {meta.label}
@@ -402,7 +405,12 @@ function ResidentCard({
                 <tbody>
                   {signalsWithData.map((s) => (
                     <tr key={s.key} className="border-t border-gray-50">
-                      <td className="py-1.5 pr-3 font-medium text-gray-800">{s.label}</td>
+                      <td className="py-1.5 pr-3 font-medium text-gray-800">
+                        {s.label}
+                        {s.source === "sensor" && (
+                          <span className="ml-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1 rounded">sensor</span>
+                        )}
+                      </td>
                       <td className="py-1.5 pr-3 text-gray-600">{fmt(s, s.baselineMean)}</td>
                       <td className="py-1.5 pr-3 text-gray-800 font-semibold">{fmt(s, s.recentMean)}</td>
                       <td className="py-1.5 pr-3">
@@ -706,21 +714,24 @@ export default function EarlyWarningPage() {
         {showMethod && (
           <div className="bg-white border border-gray-100 rounded-2xl p-4 text-sm text-gray-700 space-y-2">
             <p>
-              <strong>1. Personal baseline.</strong> For each resident, the care logs from {BASELINE_START + 1} to{" "}
-              {BASELINE_END + 1} days ago become one score per day for each signal: hydration, meals, mood,
-              confusion, medication, pain, temperature and heart rate. This is that resident&apos;s normal.
+              <strong>1. One-week personal normal.</strong> For each resident, days {BASELINE_START + 1} to{" "}
+              {BASELINE_END + 1} ago become one value per day for each signal. From care logs: hydration, meals, mood,
+              confusion, medication, pain, temperature and heart rate. From ward sensors: sleep hours, night
+              bathroom visits, night bed exits and breathing while asleep. This week is that resident&apos;s normal.
             </p>
             <p>
               <strong>2. Recent vs. normal.</strong> The last {RECENT_DAYS} days are compared with that normal
-              in personal standard deviations (a z-score). Days 4–7 are skipped, so a slow decline can&apos;t
-              become part of its own baseline. A change must exceed 1.5 SD <em>and</em> show on at least 2
+              in personal standard deviations (a z-score). Day {RECENT_DAYS + 1} is skipped, so the start of a
+              change doesn&apos;t become part of its own normal. A change must exceed 1.5 SD <em>and</em> show on at least 2
               separate days. Each signal has a minimum SD, so very consistent residents aren&apos;t flagged for
               tiny changes.
             </p>
             <p>
               <strong>3. Patterns, not single numbers.</strong> Known combinations become screening prompts
-              with actions: low fluids with new confusion (dehydration / urinary infection), eating less with
-              low mood and no family contact (withdrawal), refused medication, rising pain.
+              with actions: low fluids with new confusion (dehydration / urinary infection), more night bathroom
+              trips (urinary), restless nights (pain, delirium, fall risk), faster breathing asleep (chest
+              infection, heart failure), eating less with low mood and no family contact (withdrawal),
+              refused medication, rising pain.
             </p>
             <p>
               <strong>4. The two social signals:</strong> days since the family last made contact, and
@@ -728,9 +739,9 @@ export default function EarlyWarningPage() {
               home average, because quiet residents are the easiest to overlook.
             </p>
             <p className="text-xs text-gray-500">
-              It uses only data staff already enter. No sensors, no paid APIs, no AI in the detection step.
-              Every flag shows the numbers behind it. Tested on 300 simulated stable residents: under 1%
-              wrongly marked &quot;Act today&quot; (run <code>npm run test:early-warning</code>).
+              No paid APIs and no AI in the detection step; every flag shows the numbers behind it. Sensor
+              signals are marked &quot;sensor&quot; (currently simulated). Tested on 300 simulated stable residents:
+              about 3% wrongly marked &quot;Act today&quot; with a 1-week normal (run <code>npm run test:early-warning</code>).
             </p>
           </div>
         )}

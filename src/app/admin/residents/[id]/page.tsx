@@ -357,7 +357,7 @@ export default function ResidentProfilePage() {
               )}
               {resident.room_number && (
                 <span className="flex items-center gap-1.5">
-                  <Bed className="w-3.5 h-3.5" /> Room {resident.room_number}
+                  <Bed className="w-3.5 h-3.5" /> {resident.room_number}
                 </span>
               )}
             </div>
@@ -531,12 +531,16 @@ export default function ResidentProfilePage() {
                     className={inputClass}
                   />
                 </Field>
-                <Field label="Room number">
+                <Field label="Ward · bed">
                   <input
-                    value={form.room_number ?? ''}
-                    onChange={(e) => setForm({ ...form, room_number: e.target.value })}
-                    className={inputClass}
+                    value={form.room_number ?? 'Not placed yet'}
+                    readOnly
+                    title="Set in Wards & beds"
+                    className={`${inputClass} bg-slate-50 text-slate-500 cursor-not-allowed`}
                   />
+                  <a href="/admin/wards" className="text-[11px] text-emerald-700 font-semibold mt-1 inline-block underline">
+                    Place or move in Wards &amp; beds
+                  </a>
                 </Field>
               </div>
 

@@ -129,7 +129,7 @@ export default function BehaviorAlertsSummaryCard() {
                   <p className="text-sm font-bold text-gray-900 truncate">
                     {a.resident_name}
                     {a.room && (
-                      <span className="text-gray-400 font-medium"> · Room {a.room}</span>
+                      <span className="text-gray-400 font-medium"> · {a.room}</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-600 font-medium mt-0.5">

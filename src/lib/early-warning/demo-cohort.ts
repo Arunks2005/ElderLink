@@ -15,6 +15,7 @@ import type {
   FamilyContactInput,
   FamilyMessageInput,
   ResidentInput,
+  SensorDayInput,
 } from "./engine";
 
 export const DEMO_LABEL = "SIMULATED DEMO DATA — fictional residents, generated in memory, never saved";
@@ -71,34 +72,34 @@ const NORMAL: DayProfile = {
 
 const RESIDENTS: DemoScenario[] = [
   {
-    resident: { id: "demo-r1", full_name: "Kamala Iyer", room_number: "101" },
-    story: "Drinking less for 3 days, now confused at times and running slightly warm.",
+    resident: { id: "demo-r1", full_name: "Kamala Iyer", room_number: "Ward A · Bed 1" },
+    story: "Drinking less for 3 days, now confused at times and running slightly warm. Sensors: more night bathroom trips, broken sleep.",
     expected: "Act today: low fluids with new confusion (screen for dehydration / UTI).",
   },
   {
-    resident: { id: "demo-r2", full_name: "Ramesh Gupta", room_number: "104" },
+    resident: { id: "demo-r2", full_name: "Ramesh Gupta", room_number: "Ward A · Bed 2" },
     story: "Son used to message every few days, but nothing for 19 days. Eating less and mood has dropped.",
     expected: "Watch or act: eating less, low mood, connection gap. Send a family call request.",
   },
   {
-    resident: { id: "demo-r3", full_name: "Fatima Sheikh", room_number: "107" },
+    resident: { id: "demo-r3", full_name: "Fatima Sheikh", room_number: "Ward A · Bed 3" },
     story: "Stable. Has the odd 'Partially' meal and one agitated day, which is normal for her.",
     expected: "Stable: ordinary noise must NOT raise a flag.",
   },
   {
-    resident: { id: "demo-r4", full_name: "Joseph D'Souza", room_number: "110" },
+    resident: { id: "demo-r4", full_name: "Joseph D'Souza", room_number: "Ward B · Bed 1" },
     story: "Started refusing his evening tablets 3 days ago and is more agitated.",
     expected: "Medication being refused more often: ask why and inform the nurse.",
   },
   {
-    resident: { id: "demo-r5", full_name: "Lakshmi Narayan", room_number: "112" },
+    resident: { id: "demo-r5", full_name: "Lakshmi Narayan", room_number: "Ward B · Bed 2" },
     story: "Quiet, never presses the call bell. No family registered. Logged about once a day while others get about four logs.",
     expected: "Seen far less than others, and no family. Should not be invisible in rounds.",
   },
   {
-    resident: { id: "demo-r6", full_name: "Harbans Singh", room_number: "115" },
-    story: "Chronic knee pain, usually about 3/10. Pain has been 6–7/10 for the last 3 days.",
-    expected: "Pain higher than usual: check for an unreported fall or new problem.",
+    resident: { id: "demo-r6", full_name: "Harbans Singh", room_number: "Ward B · Bed 3" },
+    story: "Chronic knee pain, usually about 3/10. Pain has been 6–7/10 for the last 3 days. Sensors: getting out of bed more at night, sleeping less.",
+    expected: "Pain higher than usual plus restless nights: check for an unreported fall or new problem.",
   },
 ];
 
@@ -211,5 +212,53 @@ export function buildDemoCohort(now: Date = new Date()) {
     logs,
     familyContacts,
     familyMessages,
+    sensorDays: buildDemoSensorNights(now, rand),
   };
+}
+
+/**
+ * SIMULATED night-time sensor summaries (bed mat + ward bathroom radar), 14 nights.
+ *  - Kamala: more bathroom trips and broken sleep for 3 nights (fits the
+ *    dehydration / urinary-infection story).
+ *  - Harbans: restless nights (getting up more, sleeping less) with his pain.
+ *  - Everyone else: ordinary night-to-night variation.
+ */
+function buildDemoSensorNights(now: Date, rand: () => number): SensorDayInput[] {
+  const out: SensorDayInput[] = [];
+  const pickInt = (probs: number[]) => {
+    const r = rand();
+    let acc = 0;
+    for (let i = 0; i < probs.length; i++) if (r <= (acc += probs[i])) return i;
+    return probs.length - 1;
+  };
+  for (const { resident } of RESIDENTS) {
+    for (let ago = 13; ago >= 0; ago--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - ago);
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      let sleep = 7 + (rand() - 0.5) * 1.2;
+      let washroom = pickInt([0.25, 0.5, 0.25]);
+      let exits = washroom + pickInt([0.8, 0.2]);
+      const breathing = 15 + (rand() - 0.5) * 1.6;
+      if (resident.id === "demo-r1" && ago <= 2) {
+        washroom = 3 + pickInt([0.5, 0.5]);
+        exits = washroom + 1;
+        sleep = 5.4 + (rand() - 0.5) * 0.6;
+      }
+      if (resident.id === "demo-r6" && ago <= 2) {
+        exits = 3 + pickInt([0.5, 0.5]);
+        sleep = 5 + (rand() - 0.5) * 0.6;
+      }
+      out.push({
+        resident_id: resident.id,
+        date,
+        sleep_hours: Math.round(sleep * 10) / 10,
+        washroom_visits: washroom,
+        night_bed_exits: exits,
+        night_breathing_rate: Math.round(breathing * 10) / 10,
+        sensor_source: "simulated",
+      });
+    }
+  }
+  return out;
 }

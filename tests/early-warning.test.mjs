@@ -74,7 +74,8 @@ test("residents with too little history stay in 'building baseline'", () => {
 test("simulated sensor/demo entries are excluded by default", () => {
   const cohort = buildDemoCohort(NOW);
   const tagged = cohort.logs.map((l) => ({ ...l, entry_source: "sensor" }));
-  const report = runEarlyWarning({ ...cohort, logs: tagged, now: NOW });
+  // Care-log check only: no sensor nights, so nothing else gives a baseline.
+  const report = runEarlyWarning({ ...cohort, logs: tagged, sensorDays: [], now: NOW });
   assert.equal(report.totals.logsUsed, 0);
   assert.equal(report.totals.logsExcluded, tagged.length);
   assert.ok(report.residents.every((r) => r.status === "baseline"));
@@ -404,4 +405,85 @@ test("radar: vitals only while still; plausible ranges per posture", () => {
   const fallen = radarReading("fallen", rnd);
   assert.ok(fallen.bodyHeightM < 0.25);
   assert.equal(radarReading("empty", rnd).presence, false);
+});
+
+// ---------------------------------------------------------------------------
+// night-time sensor signals (1-week normal)
+// ---------------------------------------------------------------------------
+test("sensor nights: bathroom trips join the hydration pattern; restless nights are flagged; steady nights are not", () => {
+  const report = runEarlyWarning({ ...buildDemoCohort(NOW), now: NOW });
+  const kamala = byName(report, "Kamala");
+  assert.ok(kamala.flaggedSignals.some((s) => s.key === "washroom_visits" && s.source === "sensor"));
+  const hyd = kamala.patterns.find((p) => p.id === "hydration_confusion");
+  assert.ok(hyd && hyd.evidence.some((e) => /bathroom/i.test(e)), "bathroom evidence in hydration pattern");
+
+  const harbans = byName(report, "Harbans");
+  assert.ok(harbans.patterns.some((p) => p.id === "night_restlessness"));
+
+  const fatima = byName(report, "Fatima");
+  assert.equal(fatima.flaggedSignals.filter((s) => s.source === "sensor").length, 0);
+});
+
+test("sensor nights alone (no care logs) can raise a urinary pattern", () => {
+  const nights = [];
+  for (let ago = 13; ago >= 0; ago--) {
+    const d = new Date(NOW);
+    d.setDate(d.getDate() - ago);
+    const date = d.toISOString().slice(0, 10);
+    nights.push({ resident_id: "x", date, sleep_hours: 7, washroom_visits: ago <= 2 ? 4 : ago % 2, night_bed_exits: ago <= 2 ? 4 : 1, night_breathing_rate: 15 });
+  }
+  const report = runEarlyWarning({ residents: [{ id: "x", full_name: "Test Person" }], logs: [], sensorDays: nights, now: NOW });
+  const r = report.residents[0];
+  assert.ok(r.patterns.some((p) => p.id === "urinary"), JSON.stringify(r.patterns.map((p) => p.id)));
+  assert.notEqual(r.status, "baseline");
+});
+
+// ---------------------------------------------------------------------------
+// shared-ward night simulation + bathroom attribution
+// ---------------------------------------------------------------------------
+import { attributeBathroomVisits, simulateWardNight, seeded } from "../src/lib/sensors/night.ts";
+
+test("shared bathroom visits are credited to the bed that was just left (first come, first served)", () => {
+  const exits = [
+    { bedId: "b2", t: 100 },
+    { bedId: "b1", t: 101 },
+    { bedId: "b3", t: 300 },
+  ];
+  // b2 arrives first, b1 queues behind; an occupancy with no exit nearby stays unknown.
+  const occ = [{ start: 101.5 }, { start: 107 }, { start: 301 }, { start: 450 }];
+  assert.deepEqual(attributeBathroomVisits(exits, occ), ["b2", "b1", "b3", null]);
+});
+
+test("ward night: urinary bed gets more bathroom visits; attribution is mostly right", () => {
+  const beds = [
+    { bedId: "a", scenario: "urinary" },
+    { bedId: "b", scenario: "normal" },
+    { bedId: "c", scenario: "restless" },
+    { bedId: "d", scenario: "normal" },
+  ];
+  let accSum = 0;
+  let n = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const night = simulateWardNight(beds, true, seeded(seed));
+    const by = Object.fromEntries(night.summaries.map((s) => [s.bedId, s]));
+    assert.ok(by.a.bathroomVisits >= 2, `seed ${seed}: urinary visits ${by.a.bathroomVisits}`);
+    assert.ok(by.c.sleepHours < by.b.sleepHours + 0.5, `seed ${seed}: restless sleeps less`);
+    if (night.attributionAccuracy !== null) {
+      accSum += night.attributionAccuracy;
+      n++;
+    }
+  }
+  assert.ok(accSum / n >= 85, `average attribution accuracy ${accSum / n}%`);
+});
+
+test("restless nights (mostly non-bathroom exits) lead with restlessness, not a urinary pattern", () => {
+  const nights = [];
+  for (let ago = 13; ago >= 0; ago--) {
+    const d = new Date(NOW);
+    d.setDate(d.getDate() - ago);
+    const recent = ago <= 2;
+    nights.push({ resident_id: "y", date: d.toISOString().slice(0, 10), sleep_hours: recent ? 5.2 : 7 + (ago % 2) * 0.3, washroom_visits: recent ? 2 : ago % 2, night_bed_exits: recent ? 5 : 1, night_breathing_rate: 15 });
+  }
+  const r = runEarlyWarning({ residents: [{ id: "y", full_name: "Rest Less" }], logs: [], sensorDays: nights, now: NOW }).residents[0];
+  assert.equal(r.patterns[0].id, "night_restlessness", JSON.stringify(r.patterns.map((p) => p.id)));
 });

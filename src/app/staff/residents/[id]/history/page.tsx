@@ -1426,7 +1426,7 @@ export default function ResidentHistoryPage() {
 
             {resident?.room_number && (
               <p className="mt-0.5 hidden text-[10px] font-bold text-slate-400 sm:block">
-                Room {resident.room_number} · {AGGREGATE_LOOKBACK_DAYS}-day care
+                {resident.room_number} · {AGGREGATE_LOOKBACK_DAYS}-day care
                 history
               </p>
             )}
@@ -1472,7 +1472,7 @@ export default function ResidentHistoryPage() {
                     {resident.room_number && (
                       <span className="inline-flex items-center gap-1.5">
                         <MapPin className="h-3.5 w-3.5 text-[#7AAEA3]" />
-                        Room {resident.room_number}
+                        {resident.room_number}
                       </span>
                     )}
 

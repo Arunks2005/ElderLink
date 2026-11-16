@@ -111,7 +111,7 @@ export default function ResidentQuickView({
           <div>
             <h2 className="font-bold text-gray-900 text-lg">{resident.full_name}</h2>
             <p className="text-sm text-gray-400">
-              {resident.room_number ? `Room ${resident.room_number}` : "No room assigned"}
+              {resident.room_number ? resident.room_number : "No bed assigned"}
               {age && age > 0 ? ` · ${age} yrs` : ""}
               {details?.status && details.status !== "active" ? ` · ${details.status.replace(/_/g, " ")}` : ""}
             </p>

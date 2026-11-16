@@ -13,6 +13,7 @@ import {
   type FacilityReport,
   type FamilyContactInput,
   type FamilyMessageInput,
+  type SensorDayInput,
   type ResidentInput,
 } from "@/lib/early-warning/engine";
 
@@ -85,6 +86,25 @@ export async function loadLiveData(supabase: Supa) {
     .select("resident_id, full_name, relationship, phone, is_primary");
   if (cErr) warnings.push(`Family contacts unavailable (${cErr.message}). Connection signal limited.`);
 
+  // Nightly sensor summaries (bed mats + ward bathroom radar) stored on
+  // daily_aggregates by record_sensor_day(). Only rows with sensor data.
+  const sinceDate = since.slice(0, 10);
+  const { data: sensorRows, error: sErr } = await supabase
+    .from("daily_aggregates")
+    .select("resident_id, date, sleep_hours, washroom_visits, night_bed_exits, night_breathing_rate, sensor_source")
+    .gte("date", sinceDate)
+    .not("sensor_source", "is", null);
+  if (sErr) warnings.push(`Sensor data unavailable (${sErr.message}). Night-time signals skipped.`);
+  const sensorDays: SensorDayInput[] = (sensorRows ?? []).map((r) => ({
+    resident_id: String(r.resident_id),
+    date: String(r.date).slice(0, 10),
+    sleep_hours: r.sleep_hours === null ? null : Number(r.sleep_hours),
+    washroom_visits: r.washroom_visits,
+    night_bed_exits: r.night_bed_exits,
+    night_breathing_rate: r.night_breathing_rate === null ? null : Number(r.night_breathing_rate),
+    sensor_source: r.sensor_source,
+  }));
+
   const { data: messages, error: mErr } = await supabase
     .from("family_messages")
     .select("resident_id, created_at, sender_role")
@@ -96,6 +116,7 @@ export async function loadLiveData(supabase: Supa) {
     logs,
     familyContacts: (contacts ?? []) as FamilyContactInput[],
     familyMessages: (messages ?? []) as FamilyMessageInput[],
+    sensorDays,
     warnings,
   };
 }
@@ -141,6 +162,7 @@ export function runLiveEngine(data: Awaited<ReturnType<typeof loadLiveData>>, so
     logs: data.logs,
     familyContacts: data.familyContacts,
     familyMessages: data.familyMessages,
+    sensorDays: data.sensorDays,
     allowedSources: sources ?? defaultSources(),
     timeZone: CARE_HOME_TZ,
   });

@@ -394,7 +394,7 @@ function ResidentCard({
             className="text-sm font-bold text-gray-900 hover:text-[#357366] transition-colors inline-flex items-baseline gap-1 group"
           >
             <span className="truncate">{group.resident_name}</span>
-            {group.room && <span className="text-gray-400 font-medium shrink-0"> · Room {group.room}</span>}
+            {group.room && <span className="text-gray-400 font-medium shrink-0"> · {group.room}</span>}
           </Link>
           <p className="text-[11px] text-gray-400 font-medium mt-0.5">
             {today ? "Updated from today's log entries" : "No entries logged today"}

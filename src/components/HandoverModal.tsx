@@ -186,7 +186,7 @@ export default function HandoverModal({
                       <li key={p.resident_id} className="rounded-xl border border-gray-100 p-3">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm text-gray-900">{p.name}</span>
-                          {p.room && <span className="text-xs text-gray-500">Room {p.room}</span>}
+                          {p.room && <span className="text-xs text-gray-500">{p.room}</span>}
                           <span className={`ml-auto text-[11px] font-bold px-2 py-0.5 rounded-md border capitalize ${LEVEL_CLS[p.level]}`}>
                             {p.level}
                           </span>

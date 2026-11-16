@@ -418,6 +418,9 @@ export default function SensorLabPage() {
           </div>
           <div className="min-w-0">
             <h1 className="font-bold leading-tight">60 GHz Radar Lab</h1>
+            <Link href="/staff/night-monitor" className="text-[11px] font-semibold text-indigo-700 underline">
+              Ward night sensors →
+            </Link>
             <p className="text-[11px] text-slate-500 hidden sm:block">Camera-free fall and breathing monitoring · simulated</p>
           </div>
           <select
@@ -472,7 +475,7 @@ export default function SensorLabPage() {
           <section className="bg-white rounded-3xl border border-slate-100 p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-bold">
-                Room {room}
+                {room}
                 {resident ? ` · ${resident.full_name}` : ""}
               </h2>
               <span

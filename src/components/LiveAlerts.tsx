@@ -518,7 +518,7 @@ export default function LiveAlerts() {
 
                       {resident?.room_number && (
                         <p className="mt-1 text-sm text-slate-500">
-                          Room {resident.room_number}
+                          {resident.room_number}
                         </p>
                       )}
                     </div>

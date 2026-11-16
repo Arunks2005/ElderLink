@@ -15,7 +15,7 @@
 export type Posture = "empty" | "walking" | "sitting_chair" | "in_bed" | "sitting_floor" | "fallen";
 
 export const POSTURE_LABEL: Record<Posture, string> = {
-  empty: "Room empty",
+  empty: "Nobody there",
   walking: "Walking",
   sitting_chair: "Sitting on chair",
   in_bed: "Lying in bed",

@@ -8,8 +8,11 @@
  *   1. Turns the ordinary care-log entries staff already record (meals,
  *      fluids, mood, medication, pain, vitals) into one number per day per
  *      signal.
- *   2. Learns that resident's OWN normal from days 8–28 ago (personal
- *      baseline), instead of using one population threshold for everybody.
+ *   2. Learns that resident's OWN normal over one week (days 5–11 ago,
+ *      a personal baseline) instead of one threshold for everybody.
+ *      Night-time sensor summaries (sleep hours, bathroom visits, bed exits,
+ *      breathing rate from bed mats and the ward's bathroom radar) are
+ *      analysed the same way as the care-log signals.
  *   3. Compares the last 3 days with that baseline using a z-score, with a
  *      minimum standard deviation per signal so tiny wobbles are ignored.
  *   4. Looks for clinically recognised combinations of signals (for example
@@ -39,6 +42,22 @@ export type CareLogInput = {
   heart_rate?: number | null;
   temperature?: number | null; // °F, as stored by the care-log page
   entry_source?: string | null; // 'manual' | 'sensor' | 'demo'
+  // Night-time sensor summary fields (only on rows built from SensorDayInput).
+  sleep_hours?: number | null;
+  washroom_visits?: number | null;
+  night_bed_exits?: number | null;
+  night_breathing_rate?: number | null;
+};
+
+/** One night's sensor summary for one resident (daily_aggregates row). */
+export type SensorDayInput = {
+  resident_id: string;
+  date: string; // YYYY-MM-DD: the night that ended on this morning
+  sleep_hours?: number | null;
+  washroom_visits?: number | null;
+  night_bed_exits?: number | null;
+  night_breathing_rate?: number | null;
+  sensor_source?: string | null; // 'simulated' | 'device'
 };
 
 export type ResidentInput = {
@@ -73,6 +92,8 @@ export type EngineInput = {
    * cannot create or hide a flag.
    */
   allowedSources?: string[];
+  /** Nightly sensor summaries; always analysed (each is labelled as sensor data). */
+  sensorDays?: SensorDayInput[];
   /** IANA zone for calendar days, e.g. "Asia/Kolkata". Default: machine local time. */
   timeZone?: string;
 };
@@ -92,10 +113,16 @@ export type MetricKey =
   | "medication"
   | "pain"
   | "temperature"
-  | "heart_rate";
+  | "heart_rate"
+  | "sleep_hours"
+  | "washroom_visits"
+  | "night_bed_exits"
+  | "night_breathing";
 
 export type SignalResult = {
   key: MetricKey;
+  /** Where the numbers come from: staff care logs or ward sensors. */
+  source: "care_log" | "sensor";
   label: string;
   unit: string;
   worseWhen: "lower" | "higher";
@@ -115,7 +142,15 @@ export type SignalResult = {
 };
 
 export type PatternResult = {
-  id: "hydration_confusion" | "withdrawal" | "medication_refusal" | "pain" | "vitals";
+  id:
+    | "hydration_confusion"
+    | "withdrawal"
+    | "medication_refusal"
+    | "pain"
+    | "vitals"
+    | "urinary"
+    | "night_restlessness"
+    | "night_breathing";
   title: string;
   severity: Severity;
   evidence: string[];
@@ -191,10 +226,12 @@ export type FacilityReport = {
 /* Configuration                                                       */
 /* ------------------------------------------------------------------ */
 
-export const WINDOW_DAYS = 28;
-export const RECENT_DAYS = 3; // days ago 0..2
-export const BASELINE_START = 7; // days ago 7..27 (days 3–6 are a buffer so
-export const BASELINE_END = WINDOW_DAYS - 1; // a slow decline can't hide in its own baseline)
+export const WINDOW_DAYS = 14; // two weeks shown in the charts
+export const RECENT_DAYS = 3; // "present": days ago 0..2
+// "Normal": one week, days ago 4..10. Day 3 is a one-day buffer so the start
+// of a change doesn't immediately become part of the normal it is compared with.
+export const BASELINE_START = 4;
+export const BASELINE_END = 10;
 export const MIN_BASELINE_DAYS = 5;
 export const MIN_RECENT_DAYS = 2;
 export const CONNECTION_GAP_DAYS = 7;
@@ -215,6 +252,8 @@ type MetricDef = {
   weight: number;
   /** Per-log value; null = this log says nothing about the metric. */
   fromLog: (log: CareLogInput) => number | null;
+  /** 'sensor' metrics read nightly sensor rows instead of care logs. */
+  source?: "care_log" | "sensor";
   /** How to combine a day's values. */
   aggregate: "mean" | "max";
   format: (v: number) => string;
@@ -328,7 +367,69 @@ export const METRICS: MetricDef[] = [
     aggregate: "mean",
     format: (v) => `${Math.round(v)} bpm`,
   },
+  // ---- night-time sensors (bed mat + ward bathroom radar) ----
+  {
+    key: "sleep_hours",
+    source: "sensor",
+    label: "Sleep",
+    unit: "h",
+    worseWhen: "lower",
+    sdFloor: 0.5,
+    weight: 1,
+    fromLog: (l) => numberOrNull(l.sleep_hours),
+    aggregate: "mean",
+    format: (v) => `${v.toFixed(1)} h`,
+  },
+  {
+    key: "washroom_visits",
+    source: "sensor",
+    label: "Night bathroom visits",
+    unit: "/night",
+    worseWhen: "higher",
+    sdFloor: 0.7,
+    weight: 1,
+    fromLog: (l) => numberOrNull(l.washroom_visits),
+    aggregate: "mean",
+    format: (v) => `${v.toFixed(1)}/night`,
+  },
+  {
+    key: "night_bed_exits",
+    source: "sensor",
+    label: "Night bed exits",
+    unit: "/night",
+    worseWhen: "higher",
+    sdFloor: 0.7,
+    weight: 0.8,
+    fromLog: (l) => numberOrNull(l.night_bed_exits),
+    aggregate: "mean",
+    format: (v) => `${v.toFixed(1)}/night`,
+  },
+  {
+    key: "night_breathing",
+    source: "sensor",
+    label: "Breathing while asleep",
+    unit: "/min",
+    worseWhen: "higher",
+    sdFloor: 1,
+    weight: 1,
+    fromLog: (l) => numberOrNull(l.night_breathing_rate),
+    aggregate: "mean",
+    format: (v) => `${v.toFixed(1)}/min`,
+  },
 ];
+
+/** A sensor night as a pseudo-log dated at 12:00 UTC (same calendar day in any zone between UTC-11 and UTC+11). */
+function sensorDayToLog(d: SensorDayInput): CareLogInput {
+  return {
+    resident_id: d.resident_id,
+    created_at: `${d.date.slice(0, 10)}T12:00:00.000Z`,
+    entry_source: "sensor_feed",
+    sleep_hours: d.sleep_hours ?? null,
+    washroom_visits: d.washroom_visits ?? null,
+    night_bed_exits: d.night_bed_exits ?? null,
+    night_breathing_rate: d.night_breathing_rate ?? null,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Small statistics helpers                                            */
@@ -442,6 +543,7 @@ function analyseSignal(def: MetricDef, logs: CareLogInput[], now: Date, firstNam
 
   const base: SignalResult = {
     key: def.key,
+    source: def.source ?? "care_log",
     label: def.label,
     unit: def.unit,
     worseWhen: def.worseWhen,
@@ -507,7 +609,7 @@ function detectPatterns(
   const patterns: PatternResult[] = [];
 
   if (flagged("fluids") && (flagged("confusion") || flagged("mood") || flagged("temperature"))) {
-    const involved: MetricKey[] = (["fluids", "confusion", "mood", "temperature"] as MetricKey[]).filter(flagged);
+    const involved: MetricKey[] = (["fluids", "confusion", "mood", "temperature", "washroom_visits"] as MetricKey[]).filter(flagged);
     patterns.push({
       id: "hydration_confusion",
       title: "Low fluids with new confusion or mood change",
@@ -595,6 +697,79 @@ function detectPatterns(
     });
   }
 
+  // ---- night-time sensor patterns ----
+  const hydrationAlready = patterns.some((p) => p.id === "hydration_confusion");
+
+  if (flagged("washroom_visits") && !hydrationAlready) {
+    const ev = [sig.washroom_visits.explanation!];
+    const withInfectionSigns = flagged("confusion") || flagged("temperature");
+    if (flagged("confusion")) ev.push(sig.confusion.explanation!);
+    if (flagged("temperature")) ev.push(sig.temperature.explanation!);
+    patterns.push({
+      id: "urinary",
+      title: withInfectionSigns ? "More night bathroom trips with confusion or fever" : "More night-time bathroom trips",
+      severity: maxSeverity([sig.washroom_visits.severity, withInfectionSigns ? "severe" : null]),
+      evidence: ev,
+      why:
+        "A rise in night-time bathroom trips can be an early sign of a urinary infection, high blood sugar or a change in " +
+        "fluid timing, and every trip in the dark is a fall risk." +
+        (withInfectionSigns ? " Combined with confusion or a raised temperature, a urinary infection is a real possibility." : ""),
+      actions: [
+        `Ask ${firstName} about burning, urgency or pain when passing urine`,
+        "Check urine colour and smell. Ask the nurse about a urine test",
+        "Keep a night light on the way to the bathroom, or offer a bedside commode",
+      ],
+    });
+  }
+
+  if (flagged("night_bed_exits") || flagged("sleep_hours")) {
+    const involved = (["night_bed_exits", "sleep_hours"] as MetricKey[]).filter(flagged);
+    const ev = involved.map((k) => sig[k].explanation!);
+    if (flagged("pain")) ev.push(sig.pain.explanation!);
+    patterns.push({
+      id: "night_restlessness",
+      title: flagged("night_bed_exits") ? "Restless nights: getting out of bed more often" : "Sleeping less than usual",
+      severity: maxSeverity([...involved.map((k) => sig[k].severity), flagged("confusion") ? "moderate" : null]),
+      evidence: ev,
+      why:
+        "Broken sleep and frequent getting up usually have a cause: pain, needing the toilet, breathlessness, worry, or " +
+        "confusion that is worse at night (delirium). Getting up at night is also when most falls happen.",
+      actions: [
+        `Ask ${firstName} what is waking them (pain, toilet, breathing, worry)`,
+        "Keep the bed-exit alert on and a night light on. Check footwear and bed height",
+        "Tell the nurse if new confusion appears, or if this continues for 2 more nights",
+      ],
+    });
+  }
+
+  if (flagged("night_breathing")) {
+    patterns.push({
+      id: "night_breathing",
+      title: "Breathing faster than usual while asleep",
+      severity: sig.night_breathing.severity!,
+      evidence: [sig.night_breathing.explanation!],
+      why:
+        "A steady rise in breathing rate during sleep can come days before a chest infection or worsening heart " +
+        "failure is obvious in the daytime.",
+      actions: [
+        "Check temperature and, if available, oxygen level this shift",
+        "Listen for cough, breathlessness or new ankle swelling",
+        "Ask the nurse to review today",
+      ],
+    });
+  }
+
+  // If most night exits are NOT bathroom trips, restlessness is the better
+  // first explanation than a urinary problem.
+  const ui = patterns.findIndex((p) => p.id === "urinary");
+  const ri = patterns.findIndex((p) => p.id === "night_restlessness");
+  const exitsNow = sig.night_bed_exits.recentMean;
+  const tripsNow = sig.washroom_visits.recentMean;
+  if (ui >= 0 && ri > ui && exitsNow !== null && tripsNow !== null && exitsNow - tripsNow >= 1) {
+    const [rest] = patterns.splice(ri, 1);
+    patterns.splice(ui, 0, rest);
+  }
+
   return patterns;
 }
 
@@ -679,6 +854,15 @@ export function runEarlyWarning(input: EngineInput): FacilityReport {
     logsByResident.set(log.resident_id, arr);
   }
 
+  // Night-time sensor summaries are analysed separately from care logs.
+  const sensorByResident = new Map<string, CareLogInput[]>();
+  for (const d of input.sensorDays ?? []) {
+    if (!d.resident_id || !d.date) continue;
+    const arr = sensorByResident.get(d.resident_id) ?? [];
+    arr.push(sensorDayToLog(d));
+    sensorByResident.set(d.resident_id, arr);
+  }
+
   // Attention equity: how many observations each resident got this week.
   const last7 = new Map<string, number>();
   for (const r of input.residents) {
@@ -694,7 +878,10 @@ export function runEarlyWarning(input: EngineInput): FacilityReport {
     const firstName = firstNameOf(r.full_name);
     const logs = logsByResident.get(r.id) ?? [];
 
-    const signalList = METRICS.map((def) => analyseSignal(def, logs, now, firstName));
+    const sensorLogs = sensorByResident.get(r.id) ?? [];
+    const signalList = METRICS.map((def) =>
+      analyseSignal(def, def.source === "sensor" ? sensorLogs : logs, now, firstName)
+    );
     const sig = Object.fromEntries(signalList.map((s) => [s.key, s])) as Record<MetricKey, SignalResult>;
     const flaggedSignals = signalList.filter((s) => s.severity !== null);
 

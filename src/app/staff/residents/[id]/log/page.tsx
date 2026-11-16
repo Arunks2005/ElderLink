@@ -1055,7 +1055,7 @@ export default function CareLogPage() {
               <div className="flex items-center gap-3 mt-0.5">
                 {residentRoom && !residentLoadError && (
                   <span className="text-slate-400 text-xs font-medium flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> Room {residentRoom}
+                    <MapPin className="w-3 h-3" /> {residentRoom}
                   </span>
                 )}
                 {lastLoggedAt && (

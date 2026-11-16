@@ -291,7 +291,7 @@ export function buildHandover(input: HandoverInput): Handover {
 
 export function handoverText(h: Omit<Handover, "text">, author?: string | null, tz?: string): string {
   const L: string[] = [];
-  const room = (r: string | null) => (r ? ` (Rm ${r})` : "");
+  const room = (r: string | null) => (r ? ` (${r})` : "");
   L.push(
     `${h.shift.toUpperCase()} SHIFT HANDOVER · ${timeLabel(h.from, tz)}–${timeLabel(h.to, tz)}` +
       (author ? ` · by ${author}` : "")

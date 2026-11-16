@@ -873,7 +873,7 @@ function ResidentCard({
           </div>
 
           <p className="text-xs font-semibold text-gray-400 flex items-center gap-1">
-            <span>{r.room_number ? `Room ${r.room_number}` : "Unassigned"}</span>
+            <span>{r.room_number ? r.room_number : "No bed"}</span>
           </p>
 
           <div className="mt-2">

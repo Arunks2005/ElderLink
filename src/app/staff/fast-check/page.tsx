@@ -687,7 +687,7 @@ export default function FastCheckPage() {
               {residents.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.full_name}
-                  {r.room_number ? ` · Room ${r.room_number}` : ""}
+                  {r.room_number ? ` · ${r.room_number}` : ""}
                 </option>
               ))}
             </select>

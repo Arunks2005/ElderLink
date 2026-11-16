@@ -426,15 +426,14 @@ export default function AdminDashboard() {
 
   const newResidentsChart = useMemo(() => computeNewResidentsLast7Days(residents), [residents]);
 
-  // Room numbers are sourced directly from residents.room_number.
-  // Duplicate room numbers are collapsed so each room appears only once
-  // in the staff assignment dropdown. Multiple staff can select the same
-  // room; their shift_start / shift_end values determine the coverage.
+  // Staff are assigned to WARDS (shared wards, not single rooms). Ward names
+  // come from residents' locations ("Ward A · Bed 3" -> "Ward A"). Multiple
+  // staff can cover the same ward on different shifts.
   const roomOptions = useMemo(() => {
     return Array.from(
       new Set(
         residents
-          .map((r) => r.room_number?.trim())
+          .map((r) => r.room_number?.split(' · ')[0]?.trim())
           .filter((room): room is string => Boolean(room))
       )
     ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
@@ -795,7 +794,7 @@ export default function AdminDashboard() {
       // Multiple staff may use the same room as long as their shifts
       // are recorded separately.
       if (staffForm.room_no_assigned && !roomOptions.includes(staffForm.room_no_assigned)) {
-        setStaffError('Please select a valid room from the residents room list.');
+        setStaffError('Please select a valid ward from the list.');
         setStaffSaving(false);
         return;
       }
@@ -846,7 +845,7 @@ export default function AdminDashboard() {
     // This prevents manually entered room numbers that do not exist in
     // the residents table.
     if (staffForm.room_no_assigned && !roomOptions.includes(staffForm.room_no_assigned)) {
-      setStaffError('Please select a valid room from the residents room list.');
+      setStaffError('Please select a valid ward from the list.');
       setStaffSaving(false);
       return;
     }
@@ -1182,7 +1181,7 @@ export default function AdminDashboard() {
                                 {r.full_name}
                               </p>
                               <p className="text-xs text-slate-500 font-medium">
-                                {r.room_number ? `Room ${r.room_number}` : 'No room assigned'}
+                                {r.room_number ? r.room_number : 'No bed assigned'}
                                 {getAge(r.dob) ? ` · ${getAge(r.dob)} yrs` : ''}
                               </p>
                             </div>
@@ -1310,7 +1309,7 @@ export default function AdminDashboard() {
                                   {r.full_name}
                                 </h3>
                                 <p className="text-xs font-medium text-slate-500">
-                                  {r.room_number ? `Room ${r.room_number}` : 'No room'}
+                                  {r.room_number ? r.room_number : 'No bed'}
                                   {age ? ` · ${age} yrs` : ''}
                                 </p>
                               </div>
@@ -1380,7 +1379,7 @@ export default function AdminDashboard() {
                     <thead className="bg-slate-100/70 text-slate-700 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
                       <tr>
                         <th className="px-6 py-4">Resident</th>
-                        <th className="px-6 py-4">Room</th>
+                        <th className="px-6 py-4">Ward · bed</th>
                         <th className="px-6 py-4">Age / DOB</th>
                         <th className="px-6 py-4">Status</th>
                         <th className="px-6 py-4 text-right">Actions</th>
@@ -1390,7 +1389,7 @@ export default function AdminDashboard() {
                       {filteredResidents.map((r) => (
                         <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 font-bold text-slate-900">{r.full_name}</td>
-                          <td className="px-6 py-4 font-medium">{r.room_number ? `Room ${r.room_number}` : 'Unassigned'}</td>
+                          <td className="px-6 py-4 font-medium">{r.room_number ? r.room_number : 'Unassigned'}</td>
                           <td className="px-6 py-4 font-medium">{getAge(r.dob) ? `${getAge(r.dob)} yrs (${r.dob})` : r.dob || '—'}</td>
                           <td className="px-6 py-4"><ResidentStatusBadge status={r.status} /></td>
                           <td className="px-6 py-4 text-right">
@@ -1679,7 +1678,7 @@ export default function AdminDashboard() {
                             <p className="text-xs text-slate-500 font-medium">{s.department || '—'}</p>
                           </td>
                           <td className="px-6 py-4 font-medium">
-                            {s.room_no_assigned ? `Room ${s.room_no_assigned}` : 'Unassigned'}
+                            {s.room_no_assigned ? s.room_no_assigned : 'Unassigned'}
                           </td>
                           <td className="px-6 py-4 text-xs font-bold text-slate-800">
                             {s.shift_start && s.shift_end
@@ -1767,13 +1766,16 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Room Number</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Ward · bed</label>
                   <input
-                    value={residentForm.room_number}
-                    onChange={(e) => setResidentForm({ ...residentForm, room_number: e.target.value })}
-                    className={INPUT_CLASS}
-                    placeholder="e.g. 104-B"
+                    value={residentForm.room_number || 'Not placed yet'}
+                    readOnly
+                    className={`${INPUT_CLASS} bg-slate-50 text-slate-500 cursor-not-allowed`}
+                    title="Set in Wards & beds"
                   />
+                  <a href="/admin/wards" className="text-[11px] text-emerald-700 font-semibold mt-1 inline-block underline">
+                    Place or move in Wards &amp; beds
+                  </a>
                 </div>
               </div>
 
@@ -2095,14 +2097,14 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Room Assigned</label>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">Assigned ward</label>
                   <select
                     value={staffForm.room_no_assigned}
                     onChange={(e) => setStaffForm({ ...staffForm, room_no_assigned: e.target.value })}
                     className={SELECT_CLASS}
                   >
                     <option value="" className="bg-white text-slate-900 font-medium py-1.5">
-                      -- Select Room --
+                      -- Select ward --
                     </option>
                     {roomOptions.map((roomNumber) => (
                       <option
@@ -2110,18 +2112,18 @@ export default function AdminDashboard() {
                         value={roomNumber}
                         className="bg-white text-slate-900 font-medium py-1.5"
                       >
-                        Room {roomNumber}
+                        {roomNumber}
                       </option>
                     ))}
                   </select>
                   {roomOptions.length === 0 ? (
                     <p className="text-[11px] text-amber-600 font-semibold mt-1">
-                      No room numbers are available yet. Add a room number to a resident first.
+                      No wards with residents yet. Place residents in Wards & beds first.
                     </p>
                   ) : (
                     <p className="text-[11px] text-slate-400 font-medium mt-1">
-                      Rooms are taken directly from residents.room_number. The same room can be
-                      assigned to multiple staff members for different shifts.
+                      Wards come from where residents are placed. The same ward can be
+                      covered by several staff members on different shifts.
                     </p>
                   )}
                 </div>

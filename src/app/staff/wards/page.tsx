@@ -24,6 +24,7 @@ import {
   Radar,
   RefreshCw,
   ShowerHead,
+  Moon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { DEVICE_LABEL, loadWards, type Bed, type Ward } from "@/lib/wards/wards";
@@ -227,7 +228,13 @@ export default function StaffWardsPage() {
             <h1 className="font-bold leading-tight">Wards</h1>
             <p className="text-[11px] text-slate-500 hidden sm:block">Tap a bed, or scan its QR tag with the phone camera</p>
           </div>
-          <button onClick={refresh} className="ml-auto p-2 rounded-xl border border-slate-200 bg-white" aria-label="Refresh">
+          <Link
+            href="/staff/night-monitor"
+            className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200"
+          >
+            <Moon className="w-3.5 h-3.5" /> Night sensors
+          </Link>
+          <button onClick={refresh} className="p-2 rounded-xl border border-slate-200 bg-white" aria-label="Refresh">
             <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>

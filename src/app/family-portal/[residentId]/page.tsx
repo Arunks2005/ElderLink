@@ -542,7 +542,7 @@ export default function FamilyPortalPage({
 
             <p className="text-sm text-gray-400">
               {resident.room_number
-                ? `Room ${resident.room_number}`
+                ? resident.room_number
                 : "No room assigned"}
 
               {resident.dob &&
@@ -871,7 +871,7 @@ export default function FamilyPortalPage({
             />
 
             <DetailRow
-              label="Room Number"
+              label="Ward / bed"
               value={resident.room_number || "—"}
             />
 

@@ -718,7 +718,7 @@ export default function FallDetectionPage() {
             {residents.map((resident) => (
               <option key={resident.id} value={resident.id}>
                 {resident.full_name}
-                {resident.room_number ? ` — Room ${resident.room_number}` : ""}
+                {resident.room_number ? ` — ${resident.room_number}` : ""}
               </option>
             ))}
           </select>
@@ -761,7 +761,7 @@ export default function FallDetectionPage() {
                     marginTop: 3,
                   }}
                 >
-                  Room {selectedResident.room_number}
+                  {selectedResident.room_number}
                 </div>
               )}
             </div>
@@ -975,7 +975,7 @@ export default function FallDetectionPage() {
                   marginTop: 3,
                 }}
               >
-                Room {selectedResident.room_number}
+                {selectedResident.room_number}
               </div>
             )}
 
