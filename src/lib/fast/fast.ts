@@ -54,6 +54,27 @@ export function tiltChangeDeg(samples: MotionSample[]): number | null {
   return Math.round(angleBetween(meanVector(start), meanVector(end)) * 10) / 10;
 }
 
+/**
+ * SIMULATED 10-second hold, for practising on a laptop with no motion
+ * sensor: the phone tilts linearly by `deg` degrees after settling.
+ */
+export function simulateHold(deg: number, seed = 1): MotionSample[] {
+  let s = seed;
+  const noise = () => ((s = (s * 16807) % 2147483647) / 2147483647 - 0.5) * 0.08;
+  const out: MotionSample[] = [];
+  for (let t = 0; t <= ARM_TEST_MS; t += 50) {
+    const frac = t < SETTLE_MS ? 0 : (t - SETTLE_MS) / (ARM_TEST_MS - SETTLE_MS);
+    const a = (deg * frac * Math.PI) / 180;
+    out.push({ t, x: 9.81 * Math.sin(a) + noise(), y: noise(), z: 9.81 * Math.cos(a) + noise() });
+  }
+  return out;
+}
+
+/** Angle (degrees) between a sample and a reference gravity vector: drives the live gauge. */
+export function angleFrom(ref: { x: number; y: number; z: number }, s: { x: number; y: number; z: number }) {
+  return Math.round(angleBetween(ref, s) * 10) / 10;
+}
+
 export type ArmResult = {
   drift: boolean | null;
   weakerSide: "left" | "right" | null;

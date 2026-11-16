@@ -23,6 +23,7 @@ import {
   Bot,
   Radar,
   Brain,
+  Cpu,
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
 import SOSModal from "../../../components/SOSModal";
@@ -317,6 +318,15 @@ export default function StaffDashboard() {
             >
               <Brain className="w-3.5 h-3.5" />
               <span>Stroke check</span>
+            </Link>
+
+            <Link
+              href="/staff/sensor-lab"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 shadow-xs px-3.5 py-2 rounded-xl transition-all"
+              title="Simulated sensors"
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>Sensor Lab</span>
             </Link>
 
             <button

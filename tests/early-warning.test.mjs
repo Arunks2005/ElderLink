@@ -350,3 +350,33 @@ test("any BE-FAST sign means call 108, with time-window advice", () => {
   const partial = evaluateFast({ balance: false, eyes: null, face: false, arms: false, speech: false, lastKnownWell: "2026-11-16T09:30:00Z" }, now);
   assert.equal(partial.status, "incomplete");
 });
+
+// ---------------------------------------------------------------------------
+// sensor simulation
+// ---------------------------------------------------------------------------
+import { interpretVitals, simulateNightBreathing, analyseNightBreathing } from "../src/lib/sensors/sim.ts";
+
+test("wearable vitals: normal, watch and alert levels", () => {
+  assert.equal(interpretVitals(76, 97).level, "ok");
+  assert.equal(interpretVitals(112, 96).level, "watch");
+  assert.equal(interpretVitals(80, 92).level, "watch");
+  assert.equal(interpretVitals(138, 96).level, "alert");
+  assert.equal(interpretVitals(80, 87).level, "alert");
+  assert.ok(interpretVitals(80, 87).actions.some((a) => /108/.test(a)));
+});
+
+test("night breathing: rising trend is flagged against the resident's own normal, steady one is not", () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    assert.equal(analyseNightBreathing(simulateNightBreathing("normal", 14, seed)).flagged, false, `normal seed ${seed}`);
+    assert.equal(analyseNightBreathing(simulateNightBreathing("rising", 14, seed)).flagged, true, `rising seed ${seed}`);
+  }
+  assert.equal(analyseNightBreathing([15, 15, 16]).flagged, false); // too few nights
+});
+
+test("simulated arm holds produce the intended drift for the practice mode", async () => {
+  const { simulateHold, tiltChangeDeg, assessArms } = await import("../src/lib/fast/fast.ts");
+  const left = tiltChangeDeg(simulateHold(24, 3));
+  const right = tiltChangeDeg(simulateHold(3, 5));
+  assert.ok(left > 18 && right < 6, `left=${left} right=${right}`);
+  assert.equal(assessArms(left, right).weakerSide, "left");
+});
