@@ -29,6 +29,8 @@ import ResidentQuickView from "../../../components/ResidentQuickView";
 import EndOfShiftModal from "../../../components/EndOfShiftModal";
 import BehaviorAlertsSummaryCard from "../../../components/BehaviorAlertsSummaryCard";
 import LiveAlerts from "../../../components/LiveAlerts";
+import HandoverModal from "../../../components/HandoverModal";
+import { shiftFor } from "../../../lib/handover/build";
 
 type Resident = {
   id: string;
@@ -79,6 +81,8 @@ export default function StaffDashboard() {
   const [assistMessage, setAssistMessage] = useState("");
   const [sendingAssist, setSendingAssist] = useState(false);
   const [showEndShift, setShowEndShift] = useState(false);
+  const [showHandover, setShowHandover] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [user, setUser] = useState<StaffUser | null>(null);
   const [search, setSearch] = useState("");
 
@@ -183,13 +187,24 @@ export default function StaffDashboard() {
     if (!newNote.trim()) return;
     setPostingNote(true);
     const supabase = createClient();
-    const { error } = await supabase.from("handover_notes").insert({
-      note: newNote.trim(),
+    const author = user?.full_name || user?.email || null;
+    const note = author ? `${newNote.trim()} (by ${author})` : newNote.trim();
+    // Tag notes with the shift they were written in. Fall back to note-only
+    // if this database's handover_notes table has no shift column.
+    let { error } = await supabase.from("handover_notes").insert({
+      note,
+      shift: shiftFor(new Date()).shift,
     });
+    if (error && /shift/i.test(error.message)) {
+      ({ error } = await supabase.from("handover_notes").insert({ note }));
+    }
     setPostingNote(false);
     if (!error) {
       setNewNote("");
+      setActionError(null);
       await refreshHandoverNotes();
+    } else {
+      setActionError(`Could not post note: ${error.message}`);
     }
   }
 
@@ -197,11 +212,24 @@ export default function StaffDashboard() {
     if (!assistResident) return;
     setSendingAssist(true);
     const supabase = createClient();
-    await supabase.from("assistance_requests").insert({
-      resident_id: assistResident.id,
-      message: assistMessage.trim() || "Assistance requested",
-      status: "open",
-    });
+    const message = assistMessage.trim() || "Assistance requested";
+    // Record who asked (requested_by) so the end-of-shift summary can count
+    // it. Older schemas may lack some columns, so retry with fewer fields.
+    const attempts: Record<string, unknown>[] = [
+      { resident_id: assistResident.id, message, status: "open", requested_by: user?.id ?? null },
+      { resident_id: assistResident.id, message, status: "open" },
+      { requested_by: user?.id ?? null, status: "open" },
+    ];
+    let lastError: string | null = null;
+    for (const row of attempts) {
+      const { error } = await supabase.from("assistance_requests").insert(row);
+      if (!error) {
+        lastError = null;
+        break;
+      }
+      lastError = error.message;
+    }
+    setActionError(lastError ? `Assistance request failed: ${lastError}` : null);
     setSendingAssist(false);
     setAssistResident(null);
     setAssistMessage("");
@@ -439,10 +467,25 @@ export default function StaffDashboard() {
                 Shift Handoff Notes
               </h2>
             </div>
-            <span className="text-xs text-gray-400 font-medium">
-              Visible to next shift
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 font-medium hidden sm:inline">
+                Visible to next shift
+              </span>
+              <button
+                onClick={() => setShowHandover(true)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#357366] hover:bg-[#2b5e53] px-3 py-1.5 rounded-lg"
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                Generate handover
+              </button>
+            </div>
           </div>
+
+          {actionError && (
+            <p className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {actionError}
+            </p>
+          )}
 
           <div className="flex gap-2 mb-4">
             <input
@@ -478,7 +521,7 @@ export default function StaffDashboard() {
                   className="p-3 bg-[#FAFAF8] rounded-xl border-l-4 border-[#4F9C8B] border-y border-r border-gray-100/80 flex items-start justify-between gap-3 text-sm"
                 >
                   <div className="space-y-1">
-                    <p className="text-gray-800 font-medium leading-relaxed">
+                    <p className="text-gray-800 font-medium leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto">
                       {n.note}
                     </p>
                     <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -680,6 +723,17 @@ export default function StaffDashboard() {
           sosCountToday={sosCountToday}
           onClose={() => setShowEndShift(false)}
           onConfirmSignOut={handleConfirmSignOut}
+          onGenerateHandover={() => {
+            setShowEndShift(false);
+            setShowHandover(true);
+          }}
+        />
+      )}
+
+      {showHandover && (
+        <HandoverModal
+          onClose={() => setShowHandover(false)}
+          onSaved={refreshHandoverNotes}
         />
       )}
 

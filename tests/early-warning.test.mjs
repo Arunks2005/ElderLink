@@ -178,3 +178,59 @@ test("calendar days follow the care home's time zone, not the server's", () => {
   assert.equal(daysAgo("2026-11-15T20:00:00Z", now, "Asia/Kolkata"), 0);
   assert.equal(daysAgo("2026-11-15T20:00:00Z", now, "UTC"), 1);
 });
+
+// ---------------------------------------------------------------------------
+// shift handover
+// ---------------------------------------------------------------------------
+import { buildHandover, shiftFor, logConcerns } from "../src/lib/handover/build.ts";
+
+test("shifts: morning 06–14, evening 14–22, night 22–06 in the care home's zone", () => {
+  // 03:30 UTC = 09:00 IST
+  assert.equal(shiftFor(new Date("2026-11-16T03:30:00Z"), "Asia/Kolkata").shift, "Morning");
+  // 10:30 UTC = 16:00 IST
+  assert.equal(shiftFor(new Date("2026-11-16T10:30:00Z"), "Asia/Kolkata").shift, "Evening");
+  // 20:30 UTC = 02:00 IST (night shift that started 22:00 the previous day)
+  const night = shiftFor(new Date("2026-11-16T20:30:00Z"), "Asia/Kolkata");
+  assert.equal(night.shift, "Night");
+  assert.equal(night.start.toISOString(), "2026-11-16T16:30:00.000Z"); // 22:00 IST
+});
+
+test("log concerns pick out the things the next shift must know", () => {
+  const c = logConcerns({ resident_id: "a", created_at: "", meals: "Refused", fluids: "None", mood: "Confused", medication: "Refused", pain_scale: 7, temperature: 100.4, heart_rate: 110 });
+  assert.deepEqual(c.slice(0, 4), ["refused a meal", "took no fluids", "confused", "refused medication"]);
+  assert.ok(c.some((x) => x.startsWith("pain 7/10")));
+  assert.ok(c.some((x) => x.startsWith("temperature 100.4°F")));
+  assert.ok(c.some((x) => x === "heart rate 110"));
+  assert.deepEqual(logConcerns({ resident_id: "a", created_at: "", meals: "Ate Fully", fluids: "Good", mood: "Calm", medication: "Given" }), []);
+});
+
+test("handover puts open falls first, lists unlogged residents, and excludes simulated entries", () => {
+  const from = "2026-11-16T08:30:00Z";
+  const h = buildHandover({
+    shift: "Evening",
+    from,
+    to: "2026-11-16T16:00:00Z",
+    timeZone: "Asia/Kolkata",
+    residents: [
+      { id: "a", full_name: "Asha Rao", room_number: "1" },
+      { id: "b", full_name: "Bala Iyer", room_number: "2" },
+      { id: "c", full_name: "Chetan Das", room_number: "3" },
+    ],
+    logs: [
+      { resident_id: "a", created_at: "2026-11-16T09:00:00Z", meals: "Ate Fully", fluids: "Good", mood: "Calm", medication: "Given", entry_source: "manual" },
+      { resident_id: "b", created_at: "2026-11-16T09:30:00Z", meals: "Refused", fluids: "Low", mood: "Agitated", medication: "Given", notes: "Says stomach hurts", entry_source: "manual" },
+      { resident_id: "c", created_at: "2026-11-16T10:00:00Z", meals: "Refused", fluids: "None", mood: "Confused", medication: "Missed", entry_source: "sensor" },
+    ],
+    openFalls: [{ resident_id: "a", status: "unresolved", triggered_at: "2026-11-16T11:00:00Z" }],
+    authorName: "Test Carer",
+  });
+  assert.equal(h.priorities[0].name, "Asha Rao");
+  assert.equal(h.priorities[0].level, "urgent");
+  assert.equal(h.priorities[1].name, "Bala Iyer");
+  assert.equal(h.priorities[1].level, "high");
+  assert.deepEqual(h.notLogged.map((r) => r.name), ["Chetan Das"]); // only a simulated entry
+  assert.equal(h.stats.simulatedExcluded, 1);
+  assert.match(h.text, /EVENING SHIFT HANDOVER/);
+  assert.match(h.text, /by Test Carer/);
+  assert.match(h.text, /Says stomach hurts/);
+});

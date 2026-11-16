@@ -17,6 +17,7 @@ export default function EndOfShiftModal({
   sosCountToday,
   onClose,
   onConfirmSignOut,
+  onGenerateHandover,
 }: {
   staffId: string;
   staffName: string;
@@ -25,40 +26,39 @@ export default function EndOfShiftModal({
   sosCountToday: number;
   onClose: () => void;
   onConfirmSignOut: () => void;
+  onGenerateHandover?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [assistCount, setAssistCount] = useState(0);
   const [notesPosted, setNotesPosted] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [signing, setSigning] = useState(false);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
       const todayStart = startOfTodayISO();
 
+      // Supabase returns errors instead of throwing, so check { error }.
       const [assistResult, notesResult] = await Promise.all([
         supabase
           .from("assistance_requests")
           .select("id", { count: "exact", head: true })
           .eq("requested_by", staffId)
-          .gte("created_at", todayStart)
-          .then(
-            (r) => r,
-            () => ({ count: 0 }),
-          ),
+          .gte("created_at", todayStart),
         supabase
           .from("handover_notes")
           .select("id", { count: "exact", head: true })
-          .gte("created_at", todayStart)
-          .then(
-            (r) => r,
-            () => ({ count: 0 }),
-          ),
+          .gte("created_at", todayStart),
       ]);
 
+      const problems: string[] = [];
+      if (assistResult.error) problems.push("assistance requests");
+      if (notesResult.error) problems.push("handover notes");
       setAssistCount(assistResult.count ?? 0);
       setNotesPosted(notesResult.count ?? 0);
+      setLoadWarning(problems.length ? `Could not count ${problems.join(" and ")}.` : null);
       setLoading(false);
     }
     load();
@@ -67,24 +67,26 @@ export default function EndOfShiftModal({
   async function handleSignOff() {
     setSigning(true);
     const supabase = createClient();
-    // ASSUMPTION: an `end_of_shift_reports` table (see schema in chat).
-    // Wrapped so a missing table doesn't block sign-out.
-    await supabase
+    const summary = {
+      total_residents: totalResidents,
+      logged_count: loggedCount,
+      sos_count_today: sosCountToday,
+      assistance_requests: assistCount,
+      handover_notes_posted: notesPosted,
+    };
+    // Optional `end_of_shift_reports` table. If it doesn't exist, keep a copy
+    // of the summary as a handover note so the record isn't lost. Sign-out is
+    // never blocked.
+    const { error } = await supabase
       .from("end_of_shift_reports")
-      .insert({
-        staff_id: staffId,
-        summary: {
-          total_residents: totalResidents,
-          logged_count: loggedCount,
-          sos_count_today: sosCountToday,
-          assistance_requests: assistCount,
-          handover_notes_posted: notesPosted,
-        },
-      })
-      .then(
-        (r) => r,
-        () => null,
-      );
+      .insert({ staff_id: staffId, summary });
+    if (error) {
+      await supabase.from("handover_notes").insert({
+        note:
+          `End of shift: ${staffName}. Logged ${loggedCount}/${totalResidents} residents, ` +
+          `${sosCountToday} SOS today, ${assistCount} assistance requests, ${notesPosted} handover notes.`,
+      });
+    }
     setSigning(false);
     onConfirmSignOut();
   }
@@ -127,6 +129,22 @@ export default function EndOfShiftModal({
                 value={String(notesPosted)}
               />
             </div>
+
+            {loadWarning && (
+              <p className="text-xs text-gray-500 mb-3">{loadWarning}</p>
+            )}
+
+            {notesPosted === 0 && onGenerateHandover && (
+              <div className="text-sm text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 mb-4 flex items-center gap-2">
+                <span className="flex-1">No handover written yet for the next shift.</span>
+                <button
+                  onClick={onGenerateHandover}
+                  className="text-xs font-semibold bg-indigo-600 text-white px-3 py-1.5 rounded-lg"
+                >
+                  Generate handover
+                </button>
+              </div>
+            )}
 
             {loggedCount < totalResidents && (
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
