@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import type { Supa } from "@/lib/early-warning/server";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import { requireCareRole } from "@/lib/auth/require-care-role";
@@ -24,7 +24,6 @@ import { requireCareRole } from "@/lib/auth/require-care-role";
  */
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const groqApiKey = process.env.GROQ_API_KEY;
 
@@ -61,9 +60,6 @@ if (!supabaseUrl) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL.");
 }
 
-if (!supabaseServiceRoleKey) {
-  console.error("Missing SUPABASE_SERVICE_ROLE_KEY.");
-}
 
 if (!geminiApiKey) {
   console.warn("GEMINI_API_KEY is not configured; Gemini fallback will be unavailable.");
@@ -73,10 +69,10 @@ if (!groqApiKey) {
   console.warn("GROQ_API_KEY is not configured; Groq routing will be unavailable.");
 }
 
-const supabase = createClient(
-  supabaseUrl ?? "",
-  supabaseServiceRoleKey ?? ""
-);
+// Database reads run AS THE SIGNED-IN STAFF/ADMIN USER (anon key + their
+// session cookie), so row-level security applies and no service-role key is
+// needed. The client is passed into each helper per request.
+type Db = Supa;
 
 const gemini = geminiApiKey
   ? new GoogleGenAI({ apiKey: geminiApiKey })
@@ -532,11 +528,12 @@ function toRecordRows(value: unknown): Record<string, unknown>[] {
 }
 
 async function readTable(
+  db: Db,
   config: TableConfig,
   resident?: Resident | null,
   room?: string | null
 ): Promise<string> {
-  let query = supabase
+  let query = db
     .from(config.table)
     .select(config.select)
     .order(config.orderBy, { ascending: false })
@@ -573,7 +570,7 @@ async function readTable(
 
   // staff_details uses room_no_assigned, not room.
   if (room && config.table === "staff_details") {
-    query = supabase
+    query = db
       .from(config.table)
       .select(config.select)
       .eq("room_no_assigned", room)
@@ -595,6 +592,7 @@ async function readTable(
 }
 
 async function buildContext(
+  db: Db,
   queryText: string,
   messages: ChatMessage[],
   residents: Resident[]
@@ -655,7 +653,7 @@ async function buildContext(
   if (!isBroadRequest(queryText)) configs = configs.slice(0, 6);
 
   const sections = await Promise.all(
-    configs.map((config) => readTable(config, resident, room))
+    configs.map((config) => readTable(db, config, resident, room))
   );
 
   const identity = resident
@@ -1161,7 +1159,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Load the canonical resident identity/room list first.
-    const { data: residentRows, error: residentError } = await supabase
+    const { data: residentRows, error: residentError } = await auth.supabase
       .from("residents")
       .select(
         "id, full_name, dob, address, room_number, photo_url, medical_notes, dietary_needs, status, created_at, medical_report_path, medical_report_name"
@@ -1175,6 +1173,7 @@ export async function POST(req: NextRequest) {
     const query = lastUserQuery(messages);
 
     const { context, labels } = await buildContext(
+      auth.supabase,
       query,
       messages,
       residents

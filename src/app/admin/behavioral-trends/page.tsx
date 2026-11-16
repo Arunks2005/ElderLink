@@ -1614,16 +1614,17 @@ const FONT_STACK =
 
 const THEME_CSS = `
 .ea-root {
-  --bg: #EDF0E7;
+  /* White, neutral chat surfaces; green is kept only as the accent colour. */
+  --bg: #FFFFFF;
   --surface: #FFFFFF;
-  --surface-2: #F5F7F0;
-  --surface-3: #E9EDE2;
-  --border: #DBE2D1;
-  --border-strong: #C8D2BC;
-  --text: #20251E;
-  --text-2: #494E43;
-  --text-3: #6A7163;
-  --text-4: #939A8B;
+  --surface-2: #F7F7F8;
+  --surface-3: #EFEFF1;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+  --text: #1F2937;
+  --text-2: #4B5563;
+  --text-3: #6B7280;
+  --text-4: #9CA3AF;
   --accent: #2F5140;
   --accent-2: #3E6B52;
   --accent-ink: #234737;
