@@ -31,6 +31,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import VoiceCareLog from "@/components/VoiceCareLog";
+import type { ParsedCareLog } from "@/lib/voice-log/parse";
 
 /* ------------------------------------------------------------------ */
 /* Schema-aligned constants                                            */
@@ -665,6 +667,39 @@ export default function CareLogPage() {
     }
   }
 
+  /** Apply fields read from a spoken note (any supported language). */
+  function applyVoiceLog(p: ParsedCareLog, transcript: string, language: { code: string; name: string }) {
+    clearError();
+    const spoken =
+      language.code === "en-IN"
+        ? transcript
+        : `[${language.name}] ${transcript}${p.notes_en ? ` (English: ${p.notes_en})` : ""}`;
+    setLog((prev) => ({
+      ...prev,
+      ...(p.meals ? { meals: p.meals } : {}),
+      ...(p.fluids ? { fluids: p.fluids } : {}),
+      ...(p.mood ? { mood: p.mood } : {}),
+      ...(p.medication ? { medication: p.medication } : {}),
+      notes: ((prev.notes ? prev.notes.trim() + " " : "") + spoken).slice(0, 2000),
+    }));
+    if (p.pain_scale !== undefined) setPainScale(p.pain_scale);
+    if (p.pain_note) setPainNote(p.pain_note);
+    if (p.systolic !== undefined && p.diastolic !== undefined) {
+      setSystolic(String(p.systolic));
+      setDiastolic(String(p.diastolic));
+      setShowVitals(true);
+    }
+    if (p.heart_rate !== undefined) {
+      setHeartRate(String(p.heart_rate));
+      setShowVitals(true);
+    }
+    if (p.temperature) {
+      setTemperature(String(p.temperature.value));
+      setTempUnit(p.temperature.unit);
+      setShowVitals(true);
+    }
+  }
+
   function pick(category: Category, choice: string) {
     clearError();
     setLog((prev) => ({ ...prev, [category]: choice }));
@@ -1106,6 +1141,9 @@ export default function CareLogPage() {
               ))}
             </div>
           </SectionCard>
+
+          {/* Voice logging in Indian languages */}
+          <VoiceCareLog onApply={applyVoiceLog} />
 
           {/* Required observation cards */}
           {categories.map((category, i) => {

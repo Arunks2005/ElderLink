@@ -2,8 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CARE_HOME_TZ, defaultSources } from "@/lib/early-warning/server";
 import { firstNameOf } from "@/lib/early-warning/engine";
 import { buildFamilyContext, familySystemPrompt, type FamilyChatLog } from "@/lib/family-chat/context";
-import Groq from "groq-sdk";
-import { GoogleGenAI } from "@google/genai";
+import { askModel, type ChatMessage } from "@/lib/ai/ask";
 
 // ---------------------------------------------------------------------------
 // POST /api/family-chat
@@ -20,8 +19,6 @@ import { GoogleGenAI } from "@google/genai";
 // staff entries; simulated entries are excluded), plus incidents and
 // emergency alerts from the last 30 days.
 // ---------------------------------------------------------------------------
-
-type ChatMessage = { role: "user" | "assistant"; content: string };
 
 // Simple per-user rate limit (per server instance): 20 questions / 10 min.
 const RATE_WINDOW_MS = 10 * 60 * 1000;
@@ -47,54 +44,6 @@ function sanitizeMessages(raw: unknown): ChatMessage[] {
     )
     .map((m) => ({ role: m.role, content: m.content.slice(0, 1000) }))
     .slice(-8);
-}
-
-async function askModel(system: string, messages: ChatMessage[]): Promise<{ reply: string; provider: string }> {
-  const errors: string[] = [];
-
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const completion = await groq.chat.completions.create({
-        model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
-        temperature: 0.3,
-        max_tokens: 700,
-        messages: [{ role: "system", content: system }, ...messages],
-      });
-      const reply = completion.choices[0]?.message?.content?.trim();
-      if (reply) return { reply, provider: "groq" };
-      errors.push("Groq returned an empty reply");
-    } catch (e) {
-      errors.push(`Groq: ${e instanceof Error ? e.message : "failed"}`);
-    }
-  }
-
-  if (process.env.GEMINI_API_KEY) {
-    const models = (process.env.GEMINI_MODELS || process.env.GEMINI_MODEL || "gemini-3.8-flash,gemini-3.5-flash-lite")
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-    const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    // Gemini expects user/model roles and must start with a user turn.
-    const contents = messages
-      .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }))
-      .filter((_, i, arr) => !(i === 0 && arr[0].role === "model"));
-    for (const model of models) {
-      try {
-        const res = await gemini.models.generateContent({
-          model,
-          contents,
-          config: { systemInstruction: system, maxOutputTokens: 700 },
-        });
-        const reply = typeof res.text === "string" ? res.text.trim() : "";
-        if (reply) return { reply, provider: "gemini" };
-      } catch (e) {
-        errors.push(`Gemini ${model}: ${e instanceof Error ? e.message : "failed"}`);
-      }
-    }
-  }
-
-  throw new Error(errors.length ? errors.join(" | ") : "No AI provider configured (set GROQ_API_KEY or GEMINI_API_KEY).");
 }
 
 export async function POST(request: Request) {

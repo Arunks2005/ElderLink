@@ -247,3 +247,53 @@ test("family chat prompt restricts scope and avoids medical advice", () => {
   assert.match(p, /not a doctor/);
   assert.match(p, /\+91 00000 00000/);
 });
+
+// ---------------------------------------------------------------------------
+// voice care logging (Indian languages)
+// ---------------------------------------------------------------------------
+import { keywordParse, sanitizeParsed } from "../src/lib/voice-log/parse.ts";
+
+test("offline parser reads Hinglish care notes", () => {
+  const p = keywordParse("Maria ji ne aadha khana khaya, kam paani piya, thoda gussa the, dawa di, dard 6 hai, BP 140/90, pulse 88");
+  assert.equal(p.meals, "Partially");
+  assert.equal(p.fluids, "Low"); // "kam paani piya" must not become "Good"
+  assert.equal(p.mood, "Agitated");
+  assert.equal(p.medication, "Given");
+  assert.equal(p.pain_scale, 6);
+  assert.equal(p.systolic, 140);
+  assert.equal(p.diastolic, 90);
+  assert.equal(p.heart_rate, 88);
+});
+
+test("offline parser reads Devanagari Hindi, including Devanagari digits", () => {
+  const p = keywordParse("खाना नहीं खाया, पानी नहीं पिया, भ्रमित लग रहे थे, बुखार १०० है");
+  assert.equal(p.meals, "Refused");
+  assert.equal(p.fluids, "None");
+  assert.equal(p.mood, "Confused");
+  assert.deepEqual(p.temperature, { value: 100, unit: "F" });
+});
+
+test("offline parser reads English notes", () => {
+  const p = keywordParse("Ate well, drank well, calm and happy, medicine given, temperature 37.8");
+  assert.equal(p.meals, "Ate Fully");
+  assert.equal(p.fluids, "Good");
+  assert.equal(p.mood, "Happy");
+  assert.equal(p.medication, "Given");
+  assert.deepEqual(p.temperature, { value: 37.8, unit: "C" });
+});
+
+test("AI output is validated: only real options and plausible vitals survive", () => {
+  const p = sanitizeParsed({
+    meals: "ate fully",
+    fluids: "lots",           // not an option → dropped
+    mood: "Confused",
+    medication: "skipped",    // not an option → dropped
+    pain_scale: 14,           // out of range → dropped
+    systolic: 80, diastolic: 120, // diastolic > systolic → dropped
+    heart_rate: 72,
+    temperature: { value: 120, unit: "F" }, // implausible → dropped
+    notes_en: "Seemed tired after lunch.",
+    extra: "ignored",
+  });
+  assert.deepEqual(p, { meals: "Ate Fully", mood: "Confused", heart_rate: 72, notes_en: "Seemed tired after lunch." });
+});
