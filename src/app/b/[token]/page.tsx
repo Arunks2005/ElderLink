@@ -86,8 +86,8 @@ export default function BedScanPage({ params }: { params: Promise<{ token: strin
           <>
             <p className="font-bold">QR tag not recognised</p>
             <p className="text-sm text-slate-500">This bed may have been removed, or your account cannot see wards. Ask an admin to reprint the tag.</p>
-            <Link href="/staff/wards" className="block border border-slate-200 font-semibold py-3 rounded-2xl">
-              Open ward map
+            <Link href="/staff/dashboard" className="block border border-slate-200 font-semibold py-3 rounded-2xl">
+              Open staff dashboard
             </Link>
           </>
         )}
@@ -97,8 +97,8 @@ export default function BedScanPage({ params }: { params: Promise<{ token: strin
               {view.ward} · {view.bed}
             </p>
             <p className="text-sm text-slate-500">No resident is assigned to this bed.</p>
-            <Link href="/staff/wards" className="block border border-slate-200 font-semibold py-3 rounded-2xl">
-              Open ward map
+            <Link href="/staff/dashboard" className="block border border-slate-200 font-semibold py-3 rounded-2xl">
+              Open staff dashboard
             </Link>
           </>
         )}

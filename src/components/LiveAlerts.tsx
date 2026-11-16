@@ -328,6 +328,21 @@ export default function LiveAlerts() {
     });
   }
 
+  // All clear: a slim status bar instead of a large empty panel, so the
+  // dashboard space goes to residents. Any active alert shows the full panel.
+  if (!loading && alerts.length === 0) {
+    return (
+      <section className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+        </span>
+        <span className="font-semibold text-slate-800">No active emergencies</span>
+        <span className="text-xs text-slate-500">Fall and SOS alerts appear here instantly · {connectionStatus}</span>
+      </section>
+    );
+  }
+
   return (
     <section className="w-full">
       {/* Header */}

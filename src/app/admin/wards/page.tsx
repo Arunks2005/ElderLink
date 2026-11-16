@@ -173,8 +173,8 @@ export default function AdminWardsPage() {
         <div>
           <p className="font-bold text-slate-900">Admins only</p>
           <p className="text-sm text-slate-500 mt-1">Ask an administrator to change wards and beds.</p>
-          <Link href="/staff/wards" className="inline-block mt-4 text-sm font-semibold text-[#357366] underline">
-            Open the ward view instead
+          <Link href="/staff/dashboard" className="inline-block mt-4 text-sm font-semibold text-[#357366] underline">
+            Open the staff dashboard instead
           </Link>
         </div>
       </div>

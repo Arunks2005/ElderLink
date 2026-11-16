@@ -248,7 +248,7 @@ export default function NightMonitorPage() {
     <div className="min-h-screen bg-[#F6F7FB] text-slate-900">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-100">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2">
-          <Link href="/staff/wards" className="p-2 rounded-xl hover:bg-slate-100" aria-label="Back to wards">
+          <Link href="/staff/dashboard" className="p-2 rounded-xl hover:bg-slate-100" aria-label="Back to dashboard">
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="p-2 rounded-xl bg-indigo-600 text-white">
