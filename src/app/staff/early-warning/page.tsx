@@ -41,6 +41,7 @@ import {
   Send,
   ShieldCheck,
   UserX,
+  Brain,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -331,6 +332,18 @@ function ResidentCard({
               <span className="font-bold">What the engine should do:</span> {scenario.expected}
             </div>
           )}
+
+          {mode === "live" &&
+            (r.patterns.some((p) => p.id === "hydration_confusion") ||
+              r.flaggedSignals.some((s) => s.key === "confusion")) && (
+              <Link
+                href={`/staff/fast-check?resident=${r.resident_id}`}
+                className="mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                <Brain className="w-4 h-4 shrink-0" />
+                New confusion can also be a sign of stroke. If it came on suddenly, run a stroke check now →
+              </Link>
+            )}
 
           {r.topActions.length > 0 && (
             <div className="mt-3">

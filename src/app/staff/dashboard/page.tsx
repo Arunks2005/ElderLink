@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Bot,
   Radar,
+  Brain,
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
 import SOSModal from "../../../components/SOSModal";
@@ -307,6 +308,15 @@ export default function StaffDashboard() {
             >
               <Radar className="w-3.5 h-3.5" />
               <span>Early Warning</span>
+            </Link>
+
+            <Link
+              href="/staff/fast-check"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 shadow-xs px-3.5 py-2 rounded-xl transition-all"
+              title="BE-FAST stroke check"
+            >
+              <Brain className="w-3.5 h-3.5" />
+              <span>Stroke check</span>
             </Link>
 
             <button

@@ -297,3 +297,56 @@ test("AI output is validated: only real options and plausible vitals survive", (
   });
   assert.deepEqual(p, { meals: "Ate Fully", mood: "Confused", heart_rate: 72, notes_en: "Seemed tired after lunch." });
 });
+
+// ---------------------------------------------------------------------------
+// BE-FAST stroke check
+// ---------------------------------------------------------------------------
+import { tiltChangeDeg, assessArms, evaluateFast } from "../src/lib/fast/fast.ts";
+
+/** 10 s of gravity samples where the phone tilts linearly by `deg` degrees after settling. */
+function holdSamples(deg, noise = 0.05) {
+  const out = [];
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * noise;
+  for (let t = 0; t <= 10_000; t += 50) {
+    const frac = t < 1_500 ? 0 : (t - 1_500) / 8_500;
+    const a = (deg * frac * Math.PI) / 180;
+    out.push({ t, x: 9.81 * Math.sin(a) + rnd(), y: rnd(), z: 9.81 * Math.cos(a) + rnd() });
+  }
+  return out;
+}
+
+test("arm test measures how far the phone tilted during the hold", () => {
+  const steady = tiltChangeDeg(holdSamples(2));
+  const sinking = tiltChangeDeg(holdSamples(25));
+  assert.ok(steady !== null && steady < 4, `steady=${steady}`);
+  assert.ok(sinking !== null && sinking > 18, `sinking=${sinking}`);
+  assert.equal(tiltChangeDeg(holdSamples(25).slice(0, 20)), null); // too short = not measured
+});
+
+test("one-sided drift is flagged; steady or equally shaky arms are not", () => {
+  assert.equal(assessArms(3, 4).drift, false);
+  const oneSided = assessArms(22, 4);
+  assert.equal(oneSided.drift, true);
+  assert.equal(oneSided.weakerSide, "left");
+  assert.equal(assessArms(20, 18).drift, null); // both moved: repeat the test
+  assert.equal(assessArms(null, 5).drift, null);
+});
+
+test("any BE-FAST sign means call 108, with time-window advice", () => {
+  const now = new Date("2026-11-16T10:00:00Z");
+  const recent = evaluateFast({ balance: false, eyes: false, face: true, arms: null, speech: false, lastKnownWell: "2026-11-16T09:00:00Z" }, now);
+  assert.equal(recent.status, "positive");
+  assert.match(recent.headline, /call 108/);
+  assert.match(recent.timeMessage, /may still be possible/);
+  assert.ok(recent.actions.some((a) => /no aspirin/.test(a)));
+
+  const late = evaluateFast({ balance: false, eyes: false, face: false, arms: true, speech: false, lastKnownWell: "2026-11-16T03:00:00Z" }, now);
+  assert.match(late.timeMessage, /past the usual/);
+
+  const clear = evaluateFast({ balance: false, eyes: false, face: false, arms: false, speech: false, lastKnownWell: "2026-11-16T09:30:00Z" }, now);
+  assert.equal(clear.status, "negative");
+
+  const partial = evaluateFast({ balance: false, eyes: null, face: false, arms: false, speech: false, lastKnownWell: "2026-11-16T09:30:00Z" }, now);
+  assert.equal(partial.status, "incomplete");
+});
