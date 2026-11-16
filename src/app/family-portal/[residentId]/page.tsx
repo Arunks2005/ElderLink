@@ -4,6 +4,7 @@ import { use, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
+import FamilyChatWidget from "@/components/FamilyChatWidget";
 
 type Resident = {
   id: string;
@@ -186,33 +187,27 @@ export default function FamilyPortalPage({
         data: { user },
         error: authError,
       } = await supabase.auth.getUser();
-
-      console.log("AUTH USER:", user);
-      console.log("AUTH ERROR:", authError);
-
       if (authError || !user) {
         router.push("/family-login");
         return;
       }
-
-      console.log("Logged in user ID:", user.id);
-      console.log("Requested resident ID:", residentId);
-
       // ============================================================
       // 2. FIND FAMILY CONTACT
       // ============================================================
 
-      const { data: contact, error: familyError } = await supabase
+      const { data: contactRows, error: familyError } = await supabase
         .from("family_contacts")
         .select("id, resident_id, profile_id, full_name, relationship, email")
-        .eq("profile_id", user.id)
-        .maybeSingle();
+        .eq("profile_id", user.id);
 
-      console.log("FAMILY CONTACT:", contact);
-      console.log("FAMILY CONTACT ERROR:", familyError);
-
+      // A family member may be linked to more than one resident. Prefer the
+      // link for the resident in the URL; otherwise fall back to the first.
+      const contact =
+        (contactRows ?? []).find((c) => c.resident_id === residentId) ??
+        (contactRows ?? [])[0] ??
+        null;
       if (familyError) {
-        console.error("Family contact query failed:", familyError);
+        console.error("Family contact query failed:", familyError.message);
 
         setError(
           "Unable to verify your family account. Please contact the administrator.",
@@ -238,11 +233,6 @@ export default function FamilyPortalPage({
       // ============================================================
 
       if (contact.resident_id !== residentId) {
-        console.error("Resident access mismatch:", {
-          authorizedResident: contact.resident_id,
-          requestedResident: residentId,
-        });
-
         setError("You do not have permission to view this resident.");
 
         setLoading(false);
@@ -258,10 +248,6 @@ export default function FamilyPortalPage({
         .select("*")
         .eq("id", contact.resident_id)
         .single();
-
-      console.log("RESIDENT:", residentData);
-      console.log("RESIDENT ERROR:", residentError);
-
       if (residentError || !residentData) {
         setError(
           residentError?.message ||
@@ -284,10 +270,6 @@ export default function FamilyPortalPage({
         .eq("resident_id", contact.resident_id)
         .order("created_at", { ascending: false })
         .limit(50);
-
-      console.log("CARE LOGS:", careData);
-      console.log("CARE LOG ERROR:", careError);
-
       // ============================================================
       // 6. LOAD INCIDENTS
       // ============================================================
@@ -298,10 +280,6 @@ export default function FamilyPortalPage({
         .eq("resident_id", contact.resident_id)
         .order("created_at", { ascending: false })
         .limit(20);
-
-      console.log("INCIDENTS:", incidentData);
-      console.log("INCIDENT ERROR:", incidentError);
-
       // ============================================================
       // 7. LOAD EMERGENCY ALERTS
       // ============================================================
@@ -312,9 +290,14 @@ export default function FamilyPortalPage({
         .eq("resident_id", contact.resident_id)
         .order("created_at", { ascending: false })
         .limit(20);
-
-      console.log("ALERTS:", alertData);
-      console.log("ALERT ERROR:", alertError);
+      // Log only the error messages (never the records themselves).
+      for (const [label, err] of [
+        ["care logs", careError],
+        ["incidents", incidentError],
+        ["emergency alerts", alertError],
+      ] as const) {
+        if (err) console.error(`Family portal: could not load ${label}:`, err.message);
+      }
 
       // ============================================================
       // 8. SAVE DATA
@@ -902,6 +885,12 @@ export default function FamilyPortalPage({
           </div>
         </section>
       </main>
+
+      {/* Resident-scoped assistant; access is re-checked on the server. */}
+      <FamilyChatWidget
+        residentId={residentId}
+        residentFirstName={(resident.full_name || "your relative").trim().split(/\s+/)[0]}
+      />
     </div>
   );
 }

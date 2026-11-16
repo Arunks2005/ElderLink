@@ -236,8 +236,12 @@ export function buildHandover(input: HandoverInput): Handover {
   for (const s of residents) {
     const ew = ewById.get(s.resident_id);
     if (ew && (ew.status === "act" || ew.status === "watch")) {
-      bump(s.resident_id, ew.status === "act" ? "high" : "watch", ew.summary);
-      for (const a of ew.topActions.slice(0, 2)) bump(s.resident_id, "watch", ew.summary, a);
+      // A resident can be on "watch" only because they are under-observed;
+      // then the attention explanation is the useful reason, not the summary.
+      const clinical = ew.patterns.length > 0 || ew.flaggedSignals.length > 0;
+      const reason = clinical ? ew.summary : ew.attention.explanation ?? ew.summary;
+      bump(s.resident_id, ew.status === "act" ? "high" : "watch", reason);
+      for (const a of ew.topActions.slice(0, 2)) bump(s.resident_id, "watch", reason, a);
     }
     if (s.concerns.length >= 2) bump(s.resident_id, "high", `This shift: ${s.concerns.slice(0, 3).join("; ")}`);
     else if (s.concerns.length === 1) bump(s.resident_id, "watch", `This shift: ${s.concerns[0]}`);
@@ -292,7 +296,8 @@ export function handoverText(h: Omit<Handover, "text">, author?: string | null, 
   L.push("SEE FIRST:");
   if (h.priorities.length === 0) L.push("- No priorities. All residents within their usual range.");
   for (const p of h.priorities.slice(0, 8)) {
-    L.push(`- [${p.level.toUpperCase()}] ${p.name}${room(p.room)}: ${p.reasons.slice(0, 3).join("; ")}`);
+    const reasons = p.reasons.slice(0, 3).map((r) => r.trim().replace(/\.$/, ""));
+    L.push(`- [${p.level.toUpperCase()}] ${p.name}${room(p.room)}: ${reasons.join("; ")}`);
     if (p.actions.length) L.push(`    → ${p.actions.slice(0, 2).join("; ")}`);
   }
   if (h.priorities.length > 8) L.push(`- …and ${h.priorities.length - 8} more (see ElderLink)`);
