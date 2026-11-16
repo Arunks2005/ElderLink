@@ -354,16 +354,7 @@ test("any BE-FAST sign means call 108, with time-window advice", () => {
 // ---------------------------------------------------------------------------
 // sensor simulation
 // ---------------------------------------------------------------------------
-import { interpretVitals, simulateNightBreathing, analyseNightBreathing } from "../src/lib/sensors/sim.ts";
-
-test("wearable vitals: normal, watch and alert levels", () => {
-  assert.equal(interpretVitals(76, 97).level, "ok");
-  assert.equal(interpretVitals(112, 96).level, "watch");
-  assert.equal(interpretVitals(80, 92).level, "watch");
-  assert.equal(interpretVitals(138, 96).level, "alert");
-  assert.equal(interpretVitals(80, 87).level, "alert");
-  assert.ok(interpretVitals(80, 87).actions.some((a) => /108/.test(a)));
-});
+import { simulateNightBreathing, analyseNightBreathing, radarReading, stepFall, FALL_CONFIRM_MS, seededRandom } from "../src/lib/sensors/radar.ts";
 
 test("night breathing: rising trend is flagged against the resident's own normal, steady one is not", () => {
   for (let seed = 1; seed <= 20; seed++) {
@@ -379,4 +370,38 @@ test("simulated arm holds produce the intended drift for the practice mode", asy
   const right = tiltChangeDeg(simulateHold(3, 5));
   assert.ok(left > 18 && right < 6, `left=${left} right=${right}`);
   assert.equal(assessArms(left, right).weakerSide, "left");
+});
+
+test("radar: slow sitting on the floor never raises a fall alert", () => {
+  let st = { phase: "idle" };
+  st = stepFall(st, "walking", "sitting_floor", 0);
+  st = stepFall(st, "sitting_floor", "sitting_floor", 60_000);
+  assert.equal(st.phase, "idle");
+});
+
+test("radar: a fast drop is confirmed only if the person stays down", () => {
+  let st = { phase: "idle" };
+  st = stepFall(st, "walking", "fallen", 1_000);
+  assert.equal(st.phase, "confirming");
+  st = stepFall(st, "fallen", "fallen", 1_000 + FALL_CONFIRM_MS - 1);
+  assert.equal(st.phase, "confirming");
+  st = stepFall(st, "fallen", "fallen", 1_000 + FALL_CONFIRM_MS);
+  assert.equal(st.phase, "alerted");
+
+  // Gets up during the confirmation window → no alert.
+  let st2 = stepFall({ phase: "idle" }, "walking", "fallen", 0);
+  st2 = stepFall(st2, "fallen", "walking", 3_000);
+  assert.equal(st2.phase, "idle");
+});
+
+test("radar: vitals only while still; plausible ranges per posture", () => {
+  const rnd = seededRandom(9);
+  const walking = radarReading("walking", rnd);
+  assert.equal(walking.breathing, null);
+  const bed = radarReading("in_bed", rnd);
+  assert.ok(bed.breathing >= 13 && bed.breathing <= 16, String(bed.breathing));
+  assert.ok(bed.heartRate >= 63 && bed.heartRate <= 73, String(bed.heartRate));
+  const fallen = radarReading("fallen", rnd);
+  assert.ok(fallen.bodyHeightM < 0.25);
+  assert.equal(radarReading("empty", rnd).presence, false);
 });
