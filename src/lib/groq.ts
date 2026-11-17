@@ -1,10 +1,13 @@
 import Groq from "groq-sdk";
 
-// Reads GROQ_API_KEY from process.env automatically.
-// Make sure GROQ_API_KEY is set in .env.local (see .env.example)
-export const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Created on first use, not when the module loads: a missing GROQ_API_KEY
+// must never break the build (Next.js loads route modules while building).
+let client: Groq | null = null;
+
+export function getGroq(): Groq {
+  client ??= new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return client;
+}
 
 // Model choice: llama-3.3-70b-versatile was deprecated by Groq on June 17, 2026.
 // openai/gpt-oss-120b is the recommended replacement for quality; swap to

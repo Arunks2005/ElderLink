@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PptxGenJS from "pptxgenjs";
-import { groq, BEHAVIORAL_MODEL } from "@/lib/groq";
+import { getGroq, BEHAVIORAL_MODEL } from "@/lib/groq";
 import { requireCareRole } from "@/lib/auth/require-care-role";
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
 
     const sourceText = content.slice(0, MAX_SOURCE_CHARS);
 
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: BEHAVIORAL_MODEL,
       temperature: 0.4,
       messages: [
