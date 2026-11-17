@@ -1614,8 +1614,8 @@ const FONT_STACK =
 
 const THEME_CSS = `
 .ea-root {
-  /* White, neutral chat surfaces; green is kept only as the accent colour. */
-  --bg: #FFFFFF;
+  /* Same look as the rest of ElderLink: light page, white cards, teal accent. */
+  --bg: #F6F7F5;
   --surface: #FFFFFF;
   --surface-2: #F7F7F8;
   --surface-3: #EFEFF1;
@@ -1625,14 +1625,14 @@ const THEME_CSS = `
   --text-2: #4B5563;
   --text-3: #6B7280;
   --text-4: #9CA3AF;
-  --accent: #2F5140;
-  --accent-2: #3E6B52;
-  --accent-ink: #234737;
-  --accent-fg: #F4F1E2;
-  --accent-soft: #DBEADE;
-  --accent-a08: rgba(47,81,64,0.08);
-  --accent-a16: rgba(47,81,64,0.16);
-  --accent-a25: rgba(47,81,64,0.25);
+  --accent: #357366;
+  --accent-2: #4F9C8B;
+  --accent-ink: #2B5E53;
+  --accent-fg: #FFFFFF;
+  --accent-soft: #EAF4F1;
+  --accent-a08: rgba(53,115,102,0.08);
+  --accent-a16: rgba(53,115,102,0.16);
+  --accent-a25: rgba(53,115,102,0.25);
   --danger: #AC4B34;
   --danger-soft: rgba(172,75,52,0.08);
   --danger-a25: rgba(172,75,52,0.25);
@@ -1820,8 +1820,8 @@ function ElderAIChatPageInner() {
   );
   const messages = activeSession?.messages ?? [];
   const hasMessages = messages.length > 0;
-  const resolvedTheme: "light" | "dark" =
-    settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
+  // ElderAI always uses the app's light theme (matches the dashboards).
+  const resolvedTheme: "light" | "dark" = "light";
 
   // Expanded = pinned open, OR temporarily peeked open by hover.
   const expanded = !isMobile && (settings.pinned || railHover);
@@ -2426,21 +2426,6 @@ function ElderAIChatPageInner() {
             {MODELS[settings.model].label}
           </span>
 
-          <button
-            onClick={cycleTheme}
-            title={settings.theme === "system" ? "System theme" : `${resolvedTheme} theme`}
-            aria-label="Change theme"
-            className="ea-focus ea-rail-btn flex h-9 w-9 items-center justify-center rounded-xl text-[var(--text-3)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-          >
-            {settings.theme === "system" ? (
-              <Monitor className="h-[17px] w-[17px]" />
-            ) : resolvedTheme === "dark" ? (
-              <Moon className="h-[17px] w-[17px]" />
-            ) : (
-              <Sun className="h-[17px] w-[17px]" />
-            )}
-          </button>
-
           <MoreMenu
             onRename={handleRename}
             onClear={handleClear}
@@ -2810,7 +2795,7 @@ function SidebarContent({
 
       {/* Footer */}
       <div className="shrink-0 space-y-1 border-t border-[var(--border)] px-[14px] py-2.5">
-        {isMobile && (
+        {false && (
           <button
             onClick={onCycleTheme}
             className={`${row} text-[var(--text-2)] hover:bg-[var(--surface-2)]`}
@@ -3274,12 +3259,6 @@ function SettingsModal({
 
   if (!open) return null;
 
-  const themes: { key: ThemePref; label: string; Icon: typeof Sun }[] = [
-    { key: "light", label: "Light", Icon: Sun },
-    { key: "dark", label: "Dark", Icon: Moon },
-    { key: "system", label: "System", Icon: Monitor },
-  ];
-
   return (
     <>
       <div
@@ -3305,26 +3284,6 @@ function SettingsModal({
 
         <div className="space-y-6 px-5 py-5">
           <div>
-            <p className="mb-2 text-[13px] font-semibold">Theme</p>
-            <div className="grid grid-cols-3 gap-2">
-              {themes.map(({ key, label, Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => onUpdate({ theme: key })}
-                  className={`ea-focus ea-card flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-[12px] font-semibold ${
-                    settings.theme === key
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
-                      : "border-[var(--border)] text-[var(--text-2)] hover:bg-[var(--surface-2)]"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t border-[var(--border)] pt-5">
             <p className="mb-2 text-[13px] font-semibold">Answer speed</p>
             <div className="grid grid-cols-2 gap-2">
               {(Object.keys(MODELS) as ModelKey[]).map((key) => (

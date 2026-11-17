@@ -37,6 +37,7 @@ import HelpRequestModal from "@/components/HelpRequestModal";
 import { bedUrl } from "@/lib/wards/wards";
 import { usePhoneOrigin } from "@/lib/wards/phone-origin";
 import type { FacilityReport, ResidentReport } from "@/lib/early-warning/engine";
+import { durationText, isStale, PRESENCE_LABEL, type Presence } from "@/lib/presence";
 
 type Resident = {
   id: string;
@@ -127,6 +128,7 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
   const [showSos, setShowSos] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [presence, setPresence] = useState<Presence | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +140,7 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
         return;
       }
       const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
-      const [r, l, c, n, b, f, inc, sos] = await Promise.all([
+      const [r, l, c, n, b, f, inc, sos, pres] = await Promise.all([
         supabase.from("residents").select("id, full_name, dob, room_number, photo_url, medical_notes, dietary_needs, status").eq("id", id).maybeSingle(),
         supabase
           .from("care_logs_demo")
@@ -158,6 +160,7 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
         supabase.from("fall_events").select("id, triggered_at, status, outcome").eq("resident_id", id).gte("triggered_at", since30).order("triggered_at", { ascending: false }).limit(5),
         supabase.from("incidents").select("id, created_at, description").eq("resident_id", id).gte("created_at", since30).order("created_at", { ascending: false }).limit(5),
         supabase.from("emergency_alerts").select("id, created_at, type").eq("resident_id", id).gte("created_at", since30).order("created_at", { ascending: false }).limit(5),
+        supabase.from("resident_presence").select("resident_id, state, since, source, updated_at").eq("resident_id", id).maybeSingle(),
       ]);
       if (cancelled) return;
       if (r.error || !r.data) {
@@ -165,6 +168,7 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
         return;
       }
       setResident(r.data as Resident);
+      setPresence((pres.data as Presence | null) ?? null);
       setLogs((l.data ?? []) as Log[]);
       setContacts((c.data ?? []) as Contact[]);
       setNights((n.data ?? []) as Night[]);
@@ -273,6 +277,12 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
                 </span>
                 {yrs != null && <span>· {yrs} yrs</span>}
                 {resident.status && <span className="capitalize">· {resident.status}</span>}
+                {presence && !isStale(presence) && (
+                  <span>
+                    · {PRESENCE_LABEL[presence.state].staff} {durationText(presence.since)}
+                    {presence.source === "simulated" ? " (sim)" : ""}
+                  </span>
+                )}
               </p>
               {st && (
                 <span className={`inline-block mt-2 text-xs font-bold px-2 py-0.5 rounded-md border ${st.cls}`}>{st.label}</span>

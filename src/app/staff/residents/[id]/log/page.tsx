@@ -24,7 +24,6 @@ import {
   Activity,
   Sparkles,
   MapPin,
-  Radio,
   Circle,
   Info,
   Clock,
@@ -442,7 +441,8 @@ export default function CareLogPage() {
   });
 
   /* -------------------- meta -------------------- */
-  const [entrySource, setEntrySource] = useState<EntrySource>("manual");
+  // Care logs are always staff entries; sensors are simulated on the Ward sensors page.
+  const entrySource: EntrySource = "manual";
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -667,21 +667,33 @@ export default function CareLogPage() {
     }
   }
 
-  /** Apply fields read from a spoken note (any supported language). */
-  function applyVoiceLog(p: ParsedCareLog, transcript: string, language: { code: string; name: string }) {
+  /**
+   * Apply fields read from a spoken note (any supported language). Called
+   * again after every pause with the whole note so far, so Notes are rebuilt
+   * from what was there before this voice session plus the spoken words
+   * (never duplicated).
+   */
+  const voiceSession = useRef<{ id: number; base: string } | null>(null);
+  function applyVoiceLog(p: ParsedCareLog, transcript: string, language: { code: string; name: string }, sessionId: number) {
     clearError();
     const spoken =
       language.code === "en-IN"
         ? transcript
         : `[${language.name}] ${transcript}${p.notes_en ? ` (English: ${p.notes_en})` : ""}`;
-    setLog((prev) => ({
-      ...prev,
-      ...(p.meals ? { meals: p.meals } : {}),
-      ...(p.fluids ? { fluids: p.fluids } : {}),
-      ...(p.mood ? { mood: p.mood } : {}),
-      ...(p.medication ? { medication: p.medication } : {}),
-      notes: ((prev.notes ? prev.notes.trim() + " " : "") + spoken).slice(0, 2000),
-    }));
+    setLog((prev) => {
+      if (!voiceSession.current || voiceSession.current.id !== sessionId) {
+        voiceSession.current = { id: sessionId, base: (prev.notes ?? "").trim() };
+      }
+      const base = voiceSession.current.base;
+      return {
+        ...prev,
+        ...(p.meals ? { meals: p.meals } : {}),
+        ...(p.fluids ? { fluids: p.fluids } : {}),
+        ...(p.mood ? { mood: p.mood } : {}),
+        ...(p.medication ? { medication: p.medication } : {}),
+        notes: ((base ? base + " " : "") + spoken).slice(0, 2000),
+      };
+    });
     if (p.pain_scale !== undefined) setPainScale(p.pain_scale);
     if (p.pain_note) setPainNote(p.pain_note);
     if (p.systolic !== undefined && p.diastolic !== undefined) {
@@ -1108,39 +1120,6 @@ export default function CareLogPage() {
               </span>
             </div>
           )}
-
-          {/* Entry source */}
-          <SectionCard
-            icon={Radio}
-            title="Entry Source"
-            hint="Sensor integration is pending — log as staff, or record a simulated sensor reading"
-            delay={0}
-          >
-            <div className="relative flex bg-slate-100 rounded-xl p-1">
-              <div
-                className="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-white shadow-sm transition-transform duration-300 ease-out"
-                style={{
-                  transform:
-                    entrySource === "sensor"
-                      ? "translateX(calc(100% + 4px))"
-                      : "translateX(0)",
-                }}
-              />
-              {(["manual", "sensor"] as const).map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setEntrySource(src)}
-                  aria-pressed={entrySource === src}
-                  className={`relative z-10 flex-1 py-2.5 text-xs font-bold rounded-lg transition-colors duration-200 ${
-                    entrySource === src ? "text-teal-700" : "text-slate-500"
-                  }`}
-                >
-                  {src === "manual" ? "Staff Entry" : "Simulated Sensor"}
-                </button>
-              ))}
-            </div>
-          </SectionCard>
 
           {/* Voice logging in Indian languages */}
           <VoiceCareLog onApply={applyVoiceLog} />

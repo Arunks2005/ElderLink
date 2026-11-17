@@ -82,7 +82,7 @@ export async function POST(request: Request) {
   const since7 = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
 
-  const [residentRes, logsRes, incidentsRes, emergenciesRes] = await Promise.all([
+  const [residentRes, logsRes, incidentsRes, emergenciesRes, presenceRes] = await Promise.all([
     supabase
       .from("residents")
       .select("full_name, room_number, dob, dietary_needs, medical_notes")
@@ -97,6 +97,7 @@ export async function POST(request: Request) {
       .limit(200),
     supabase.from("incidents").select("description, created_at").eq("resident_id", residentId).gte("created_at", since30),
     supabase.from("emergency_alerts").select("*").eq("resident_id", residentId).gte("created_at", since30),
+    supabase.from("resident_presence").select("state, since, source, updated_at").eq("resident_id", residentId).maybeSingle(),
   ]);
 
   if (residentRes.error || !residentRes.data) {
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
     emergencies: emergenciesRes.error ? [] : ((emergenciesRes.data ?? []) as Record<string, unknown>[]),
     timeZone: CARE_HOME_TZ,
     allowedSources: defaultSources(),
+    presence: presenceRes.error ? null : ((presenceRes.data as { state: "in_bed" | "up"; since: string; source: string; updated_at: string } | null) ?? null),
   });
 
   const system =

@@ -4,6 +4,7 @@ import { use, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
+import { isStale, PRESENCE_LABEL, sinceText, type Presence } from "@/lib/presence";
 import FamilyChatWidget from "@/components/FamilyChatWidget";
 import {
   Activity,
@@ -14,6 +15,7 @@ import {
   ClipboardCheck,
   Clock,
   Coffee,
+  Footprints,
   Droplets,
   Heart,
   HeartHandshake,
@@ -188,6 +190,7 @@ export default function FamilyPortalPage({
   const [careLogs, setCareLogs] = useState<CareLog[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
+  const [presence, setPresence] = useState<Presence | null>(null);
   const [familyContact, setFamilyContact] = useState<FamilyContact | null>(
     null,
   );
@@ -361,6 +364,25 @@ export default function FamilyPortalPage({
 
     const supabase = createClient();
 
+    // "Right now" status from the bed sensor (family can read only their relative's row).
+    const loadPresence = async () => {
+      const { data } = await supabase
+        .from("resident_presence")
+        .select("resident_id, state, since, source, updated_at")
+        .eq("resident_id", residentId)
+        .maybeSingle();
+      setPresence((data as Presence | null) ?? null);
+    };
+    const first = setTimeout(() => void loadPresence(), 0);
+    const presenceChannel = supabase
+      .channel(`family-presence-${residentId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "resident_presence", filter: `resident_id=eq.${residentId}` },
+        () => void loadPresence(),
+      )
+      .subscribe();
+
     const channel = supabase
       .channel(`family-care-logs-${residentId}`)
       .on(
@@ -378,6 +400,8 @@ export default function FamilyPortalPage({
       .subscribe();
 
     return () => {
+      clearTimeout(first);
+      void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(channel);
     };
   }, [residentId, loadAll]);
@@ -561,13 +585,30 @@ export default function FamilyPortalPage({
               </div>
             </div>
             <div className="sm:ml-auto">
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/25 backdrop-blur px-3 py-1.5 text-xs font-semibold text-white">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                </span>
-                Live updates from the care team
-              </span>
+              <div className="rounded-2xl bg-white/15 border border-white/25 backdrop-blur px-4 py-3 text-white min-w-[220px]">
+                <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-white/70">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                  </span>
+                  Right now
+                </p>
+                {presence && !isStale(presence) ? (
+                  <>
+                    <p className="mt-1 flex items-center gap-2 text-lg font-extrabold">
+                      {presence.state === "in_bed" ? <BedDouble className="w-5 h-5" /> : <Footprints className="w-5 h-5" />}
+                      {PRESENCE_LABEL[presence.state].family}
+                    </p>
+                    <p className="text-xs text-white/75">
+                      since {sinceText(presence.since)}
+                      {presence.source === "simulated" ? " · simulated bed sensor" : " · bed sensor"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-1 text-sm font-semibold">No recent update from the bed sensor</p>
+                )}
+                {lastUpdate && <p className="mt-1.5 text-xs text-white/75">Last checked by staff {relativeTime(lastUpdate)}</p>}
+              </div>
             </div>
           </div>
         </section>

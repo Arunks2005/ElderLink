@@ -2451,10 +2451,10 @@ function FloatingAIButton({ onClick }: { onClick: () => void }) {
       <button
         onClick={onClick}
         title="Ask Behavioral AI — starts a new chat"
-        className="relative w-16 h-16 rounded-full flex items-center justify-center shadow-xl shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-transform duration-200"
-        style={{ background: 'linear-gradient(135deg, #6366f1, #7c3aed)' }}
+        className="relative w-16 h-16 rounded-full flex items-center justify-center shadow-xl shadow-[#357366]/30 hover:scale-105 active:scale-95 transition-transform duration-200"
+        style={{ background: 'linear-gradient(135deg, #4F9C8B, #357366)' }}
       >
-        <span className="absolute inset-0 rounded-full bg-indigo-400/40 animate-ping" style={{ animationDuration: '2.4s' }} />
+        <span className="absolute inset-0 rounded-full bg-[#4F9C8B]/40 animate-ping" style={{ animationDuration: '2.4s' }} />
         <Bot className="w-7 h-7 text-white relative z-10" />
         <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-sm">
           <Sparkles className="w-3 h-3 text-indigo-600" />

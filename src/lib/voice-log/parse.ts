@@ -197,6 +197,11 @@ export function careLogExtractionPrompt(languageName: string) {
     '  "systolic", "diastolic", "heart_rate": integers',
     '  "temperature": {"value": number, "unit": "F" | "C"}',
     '  "notes_en": one or two short English sentences translating anything else the next shift should know',
+    "If the carer corrects themselves, use the LATEST value they said (e.g. \"BP 140 by 90, no, 130 by 80\" -> 130/80).",
+    "Spoken numbers count: \"140 by 90\", \"140 over 90\", \"एक सौ चालीस बटा नब्बे\" are blood pressure.",
+    "Only fill pain_scale when pain is actually mentioned (\"no pain\" = 0). If pain is not mentioned at all, pain_scale is null.",
+    "Only choose a mood option when it clearly matches. Sad, low, quiet or tearful is NOT Agitated: leave mood null and describe it in notes_en.",
+    '"notes_en" must hold every observation NOT already captured in the other fields (feelings, requests, behaviour); null if nothing else was said.',
     "Never guess values that are not stated. Never add medical advice. Output JSON only.",
   ].join("\n");
 }

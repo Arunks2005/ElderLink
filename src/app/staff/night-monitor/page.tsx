@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BedDouble, FlaskConical, Loader2, Moon, Radar, Send, ShowerHead } from "lucide-react";
+import LivePresencePanel from "@/components/LivePresencePanel";
 import { FALL_CONFIRM_MS } from "@/lib/sensors/radar";
 import { createClient } from "@/lib/supabase/client";
 import { loadWards, type Ward } from "@/lib/wards/wards";
@@ -301,6 +302,13 @@ export default function NightMonitorPage() {
         </div>
 
         {msg && <div role="status" className={`rounded-2xl border px-4 py-3 text-sm ${toneCls[msg.tone]}`}>{msg.text}</div>}
+
+        {ward && (
+          <LivePresencePanel
+            wardName={ward.name}
+            beds={occupied.map((b) => ({ id: b.id, label: b.label, resident: { id: b.resident!.id, full_name: b.resident!.full_name } }))}
+          />
+        )}
 
         {ward && (
           <section className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs space-y-3">

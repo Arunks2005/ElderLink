@@ -42,7 +42,7 @@ export default function ElderAIDock({ open, onClose }: { open: boolean; onClose:
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-100 px-3">
         <span
           className="flex h-7 w-7 items-center justify-center rounded-lg text-white"
-          style={{ background: "linear-gradient(135deg, #6366f1, #7c3aed)" }}
+          style={{ background: "linear-gradient(135deg, #4F9C8B, #357366)" }}
         >
           <Bot className="h-4 w-4" />
         </span>

@@ -424,10 +424,10 @@ function FloatingAIButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       title="Ask ElderAI (new chat)"
       aria-label="Ask ElderAI"
-      className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-xl shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-transform duration-200"
-      style={{ background: "linear-gradient(135deg, #6366f1, #7c3aed)" }}
+      className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-xl shadow-[#357366]/30 hover:scale-105 active:scale-95 transition-transform duration-200"
+      style={{ background: "linear-gradient(135deg, #4F9C8B, #357366)" }}
     >
-      <span className="absolute inset-0 rounded-full bg-indigo-400/40 animate-ping" style={{ animationDuration: "2.4s" }} />
+      <span className="absolute inset-0 rounded-full bg-[#4F9C8B]/40 animate-ping" style={{ animationDuration: "2.4s" }} />
       <Bot className="w-6 h-6 text-white relative z-10" />
     </button>
   );
