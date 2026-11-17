@@ -690,12 +690,19 @@ export default function FamilyPortalPage({
                   ))}
                 </div>
               ) : (
-                <div className="relative rounded-2xl overflow-hidden min-h-[160px] flex items-end">
-                  <Image src={CONNECT_IMG} alt="" fill sizes="(max-width: 1024px) 100vw, 640px" className="object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#1E3D36]/90 via-[#1E3D36]/40 to-transparent" />
-                  <p className="relative p-4 text-sm text-white">
-                    <span className="font-bold block text-base">Photos will appear here</span>
-                    When staff add a photo to {firstName}&apos;s care log, you&apos;ll see it here first.
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {LIFE_PHOTOS.map((p) => (
+                      <figure key={p.src} className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gray-100">
+                        <Image src={p.src} alt={p.alt} fill sizes="(max-width: 640px) 50vw, 200px" className="object-cover" />
+                        <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2.5 pb-2 pt-6 text-xs font-semibold text-white">
+                          {p.caption}
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Life at the home (illustrative photos). Photos staff take of {firstName} will appear here instead.
                   </p>
                 </div>
               )}
@@ -753,7 +760,15 @@ export default function FamilyPortalPage({
 
 const HERO_IMG = "https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=1600&q=80";
 const CARE_IMG = "https://images.unsplash.com/photo-1542884748-2b87b36c6b90?auto=format&fit=crop&w=600&q=80";
-const CONNECT_IMG = "https://images.unsplash.com/photo-1544027993-37dbfe43562a?auto=format&fit=crop&w=1200&q=80";
+const unsplash = (id: string) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=500&q=75`;
+
+// Shown until staff share real photos of the resident (clearly labelled as illustrative).
+const LIFE_PHOTOS = [
+  { src: unsplash("1559234938-b60fff04894d"), alt: "Two older people walking in a garden", caption: "Morning walks" },
+  { src: unsplash("1581056771107-24ca5f033842"), alt: "A doctor visiting an older woman", caption: "Regular doctor visits" },
+  { src: unsplash("1584515933487-779824d29309"), alt: "Two people holding hands", caption: "Care and company" },
+  { src: unsplash("1454875392665-2ac2c85e8d3e"), alt: "An older person's hands resting", caption: "Quiet rest time" },
+];
 
 type Tone = "good" | "mid" | "bad" | "none";
 

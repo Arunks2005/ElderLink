@@ -17,7 +17,11 @@ export async function GET(request: Request) {
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Not available" }, { status: 404 });
   }
-  const port = new URL(request.url).port;
+  const url = new URL(request.url);
+  const port = url.port;
+  // Keep https when the dev server runs with --experimental-https
+  // (needed for the phone fall detector's motion sensor).
+  const proto = url.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https" ? "https" : "http";
   const found: { name: string; address: string }[] = [];
   for (const [name, list] of Object.entries(networkInterfaces())) {
     if (VIRTUAL.test(name)) continue;
@@ -26,6 +30,6 @@ export async function GET(request: Request) {
     }
   }
   found.sort((a, b) => Number(PREFERRED.test(b.name)) - Number(PREFERRED.test(a.name)));
-  const origins = found.map((f) => `http://${f.address}${port ? `:${port}` : ""}`);
+  const origins = found.map((f) => `${proto}://${f.address}${port ? `:${port}` : ""}`);
   return NextResponse.json({ origins });
 }

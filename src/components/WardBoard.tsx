@@ -25,6 +25,7 @@ import {
   Search,
   ShieldAlert,
   ShowerHead,
+  Smartphone,
 } from "lucide-react";
 import { DEVICE_LABEL, type Bed, type Ward } from "@/lib/wards/wards";
 
@@ -296,6 +297,9 @@ export default function WardBoard({
         </span>
         <Link href="/staff/night-monitor" className="ml-auto inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline">
           <Moon className="w-3.5 h-3.5" /> Ward sensors (simulated)
+        </Link>
+        <Link href="/fall-detect" className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline">
+          <Smartphone className="w-3.5 h-3.5" /> Phone as fall sensor
         </Link>
       </div>
     </section>
