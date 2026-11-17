@@ -39,6 +39,9 @@ export default function HomePage() {
             <a href="#features" className="hover:text-[#4F9C8B] transition-colors">
               Features
             </a>
+            <Link href="/family-login" className="hover:text-[#4F9C8B] transition-colors">
+              Family portal
+            </Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -86,6 +89,13 @@ export default function HomePage() {
             >
               <span>Staff / Admin sign in</span>
               <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/family-login"
+              className="inline-flex items-center justify-center gap-2 bg-white text-[#3B5C8A] font-semibold px-7 py-3.5 rounded-full border border-[#3B5C8A]/30 hover:border-[#3B5C8A] hover:shadow-lg active:scale-98 transition-all duration-200"
+            >
+              <Users className="w-4 h-4" />
+              <span>Family portal</span>
             </Link>
           </div>
 
@@ -149,7 +159,7 @@ export default function HomePage() {
               Built around three roles
             </h2>
             <p className="text-gray-600 text-base leading-relaxed">
-              Each person sees only what's relevant to them the moment they sign in.
+              Each person sees only what&apos;s relevant to them the moment they sign in.
             </p>
           </div>
 
@@ -181,15 +191,18 @@ export default function HomePage() {
               <div className="w-12 h-12 rounded-xl bg-[#EEF2FA] flex items-center justify-center mb-6 text-[#3B5C8A] group-hover:scale-110 transition-transform">
                 <Users className="w-6 h-6" />
               </div>
-              <div className="flex items-center gap-2 mb-3">
-                <h3 className="text-xl font-bold text-[#1F2937]">Family</h3>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-200/60">
-                  Coming Soon
-                </span>
-              </div>
+              <h3 className="text-xl font-bold mb-3 text-[#1F2937]">Family</h3>
               <p className="text-sm text-gray-600 leading-relaxed">
                 Checks in on their relative anytime — care updates and alerts, without needing to call the home.
               </p>
+              <div className="mt-5 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold">
+                <Link href="/family-login" className="text-[#3B5C8A] hover:underline underline-offset-4">
+                  Family sign in →
+                </Link>
+                <Link href="/family-signup" className="text-gray-500 hover:text-[#3B5C8A] hover:underline underline-offset-4">
+                  First time? Set up access
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -233,7 +246,7 @@ export default function HomePage() {
             </div>
             <h3 className="text-lg font-bold text-[#1F2937] mb-2">Role-based access</h3>
             <p className="text-sm text-gray-600 leading-relaxed">
-              Row-level security means each role only ever sees the data they're entitled to — nothing more.
+              Row-level security means each role only ever sees the data they&apos;re entitled to — nothing more.
             </p>
           </div>
         </div>
