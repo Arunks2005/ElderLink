@@ -103,6 +103,23 @@ export default function LiveAlerts() {
     return events.map((e) => ({ ...e, resident: e.resident_id ? map.get(e.resident_id) ?? null : null }));
   }, []);
 
+  const alertsRef = useRef<Alert[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Pop-up on every other screen when someone taps "I'm going". */
+  const noticeResponders = useCallback((next: Alert[]) => {
+    for (const a of next) {
+      if (a.status !== "acknowledged" || !a.acknowledged_by || a.acknowledged_by === me.current?.id) continue;
+      const before = alertsRef.current.find((x) => String(x.id) === String(a.id));
+      if (before && before.status !== "acknowledged") {
+        setToast(`${a.acknowledged_by_name ?? "A colleague"} is going to ${a.resident?.full_name ?? "the fall"} (${placeOf(a)})`);
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), 10000);
+      }
+    }
+  }, []);
+
   const refreshOne = useCallback(
     async (id: FallEvent["id"]) => {
       const supabase = createClient();
@@ -113,17 +130,40 @@ export default function LiveAlerts() {
         return;
       }
       const [full] = await attach([data as FallEvent]);
+      noticeResponders([full]);
       setAlerts((cur) => {
         const exists = cur.some((a) => String(a.id) === String(id));
         return exists ? cur.map((a) => (String(a.id) === String(id) ? full : a)) : [full, ...cur];
       });
     },
-    [attach]
+    [attach, noticeResponders]
   );
 
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
+
+    // Full reload of open alerts. Also runs every 15 s as a backup, because
+    // phone networks often drop the live connection silently.
+    const loadOpen = async () => {
+      const { data, error } = await supabase
+        .from("fall_events")
+        .select(COLS)
+        .in("status", OPEN)
+        .gte("triggered_at", new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString())
+        .order("triggered_at", { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error("Failed to load fall alerts:", error.message);
+        return;
+      }
+      const next = await attach((data ?? []) as FallEvent[]);
+      if (cancelled) return;
+      noticeResponders(next);
+      setAlerts(next);
+      setLoading(false);
+    };
+    const poll = setInterval(() => void loadOpen(), 15000);
 
     void (async () => {
       const { data: u } = await supabase.auth.getUser();
@@ -138,15 +178,7 @@ export default function LiveAlerts() {
           role: ad.data ? "admin" : s.data ? "staff" : null,
         };
       }
-      const { data, error } = await supabase
-        .from("fall_events")
-        .select(COLS)
-        .in("status", OPEN)
-        .gte("triggered_at", new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString())
-        .order("triggered_at", { ascending: false });
-      if (cancelled) return;
-      if (error) console.error("Failed to load fall alerts:", error.message);
-      setAlerts(await attach((data ?? []) as FallEvent[]));
+      await loadOpen();
       setLoading(false);
     })();
 
@@ -164,15 +196,15 @@ export default function LiveAlerts() {
 
     return () => {
       cancelled = true;
+      clearInterval(poll);
       void supabase.removeChannel(channel);
     };
-  }, [attach, refreshOne]);
+  }, [attach, refreshOne, noticeResponders]);
 
   // ── clock, escalation, alarm tone ────────────────────────────────────
   const waiting = useMemo(() => alerts.filter((a) => a.status !== "acknowledged"), [alerts]);
 
   // Every second: tick the timers and escalate alerts nobody answered.
-  const alertsRef = useRef(alerts);
   useEffect(() => {
     alertsRef.current = alerts;
   }, [alerts]);
@@ -252,6 +284,15 @@ export default function LiveAlerts() {
 
   return (
     <section className="w-full space-y-3" aria-live="assertive">
+      {toast && (
+        <div className="flex items-center gap-2 rounded-2xl bg-amber-500 text-white px-4 py-3 font-bold shadow-lg" role="status">
+          <Footprints className="w-5 h-5 shrink-0" />
+          <span className="flex-1">{toast}</span>
+          <button onClick={() => setToast(null)} className="text-white/80 text-sm underline">
+            OK
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2 text-sm">
         <span className="inline-flex items-center gap-1.5 font-black text-red-700">
           <ShieldAlert className="w-4 h-4" /> {alerts.length} active fall alert{alerts.length === 1 ? "" : "s"}
@@ -306,7 +347,7 @@ function FallCard({
     setBusy("ack");
     setError(null);
     const supabase = createClient();
-    const { error: e } = await supabase
+    const { data: claimed, error: e } = await supabase
       .from("fall_events")
       .update({
         status: "acknowledged",
@@ -315,9 +356,12 @@ function FallCard({
         acknowledged_by_name: me.current?.name ?? "Staff",
       })
       .eq("id", a.id)
-      .in("status", ["unresolved", "active"]);
+      .in("status", ["unresolved", "active"])
+      .select("id");
     setBusy(null);
     if (e) setError(e.message);
+    // Nothing updated: a colleague tapped first. The card refresh shows who.
+    else if (!claimed || claimed.length === 0) setError("A colleague tapped “I'm going” first. You can still help or take over below.");
     onChanged();
   }
 
@@ -408,10 +452,14 @@ function FallCard({
         </div>
         {acknowledged ? (
           <span className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-amber-100 border border-amber-300 px-3 py-1 text-xs font-bold text-amber-900">
-              {mine ? "You are" : `${a.acknowledged_by_name ?? "Staff"} is`} responding
-              {responseS != null ? ` · reached in ${mmss(responseS)}` : ""}
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 text-white px-3 py-1.5 text-sm font-black">
+              <Footprints className="w-4 h-4" />
+              {mine ? "You are on the way" : `${a.acknowledged_by_name ?? "A colleague"} is on the way`}
+              <span className="font-semibold text-white/85">
+                {a.acknowledged_at ? `· ${mmss(since(a.acknowledged_at, now))} ago` : ""}
+              </span>
             </span>
+            {responseS != null && <span className="text-xs text-amber-800">responded in {mmss(responseS)}</span>}
             {!mine && (
               <button onClick={() => setExpanded((x) => !x)} className="text-xs font-semibold text-amber-900 underline">
                 {expanded ? "Hide steps" : "Help / take over"}

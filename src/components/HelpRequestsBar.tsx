@@ -60,7 +60,11 @@ export default function HelpRequestsBar() {
       .channel("elderlink-help-requests")
       .on("postgres_changes", { event: "*", schema: "public", table: "assistance_requests" }, () => void load())
       .subscribe();
-    const tick = setInterval(() => setTick((t) => t + 1), 30000);
+    // Backup check every 15 s: phone networks often drop the live connection.
+    const tick = setInterval(() => {
+      setTick((t) => t + 1);
+      void load();
+    }, 15000);
     return () => {
       clearTimeout(first);
       clearInterval(tick);
