@@ -26,7 +26,6 @@ import {
   ShieldAlert,
   Send,
   FileText,
-  HelpCircle,
   ClipboardList,
   Bot,
   Clock,
@@ -35,7 +34,9 @@ import {
 } from "lucide-react";
 import { createClient } from "../../../lib/supabase/client";
 import SOSModal from "../../../components/SOSModal";
-import ResidentQuickView from "../../../components/ResidentQuickView";
+import ElderAIDock, { DOCK_WIDTH_CLASS } from "../../../components/ElderAIDock";
+import HelpRequestModal from "../../../components/HelpRequestModal";
+import HelpRequestsBar from "../../../components/HelpRequestsBar";
 import EndOfShiftModal from "../../../components/EndOfShiftModal";
 import LiveAlerts from "../../../components/LiveAlerts";
 import HandoverModal from "../../../components/HandoverModal";
@@ -68,7 +69,6 @@ function startOfTodayISO() {
 const SHIFT_HOURS: Record<string, string> = { Morning: "06:00–14:00", Evening: "14:00–22:00", Night: "22:00–06:00" };
 
 // Same ElderAI chat route used on the admin dashboard.
-const BEHAVIORAL_AI_NEW_CHAT_PATH = "/admin/behavioral-trends?new=1";
 
 export default function StaffDashboard() {
   const router = useRouter();
@@ -80,15 +80,13 @@ export default function StaffDashboard() {
   const [statuses, setStatuses] = useState<Map<string, Status>>(new Map());
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
+  const [aiOpen, setAiOpen] = useState(false);
   const [handoverNotes, setHandoverNotes] = useState<HandoverNote[]>([]);
   const [newNote, setNewNote] = useState("");
   const [postingNote, setPostingNote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sosResident, setSosResident] = useState<BoardResident | null>(null);
-  const [quickViewResident, setQuickViewResident] = useState<Resident | null>(null);
   const [assistResident, setAssistResident] = useState<BoardResident | null>(null);
-  const [assistMessage, setAssistMessage] = useState("");
-  const [sendingAssist, setSendingAssist] = useState(false);
   const [showEndShift, setShowEndShift] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -203,31 +201,7 @@ export default function StaffDashboard() {
     }
   }
 
-  async function handleSendAssistance() {
-    if (!assistResident) return;
-    setSendingAssist(true);
-    const supabase = createClient();
-    const message = assistMessage.trim() || "Assistance requested";
-    // Older schemas may lack some columns, so retry with fewer fields.
-    const attempts: Record<string, unknown>[] = [
-      { resident_id: assistResident.id, message, status: "open", requested_by: user?.id ?? null },
-      { resident_id: assistResident.id, message, status: "open" },
-      { requested_by: user?.id ?? null, status: "open" },
-    ];
-    let lastError: string | null = null;
-    for (const row of attempts) {
-      const { error } = await supabase.from("assistance_requests").insert(row);
-      if (!error) {
-        lastError = null;
-        break;
-      }
-      lastError = error.message;
-    }
-    setActionError(lastError ? `Assistance request failed: ${lastError}` : null);
-    setSendingAssist(false);
-    setAssistResident(null);
-    setAssistMessage("");
-  }
+
 
   async function handleConfirmSignOut() {
     await createClient().auth.signOut();
@@ -251,7 +225,7 @@ export default function StaffDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F6F7F5] text-[#1F2937] font-sans">
+    <div className={`min-h-screen bg-[#F6F7F5] text-[#1F2937] font-sans transition-[padding] duration-300 ${aiOpen ? DOCK_WIDTH_CLASS : ""}`}>
       {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
@@ -295,6 +269,7 @@ export default function StaffDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-4">
         <LiveAlerts />
+        <HelpRequestsBar />
 
         {/* Shift strip */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -400,7 +375,7 @@ export default function StaffDashboard() {
             statuses={statuses}
             onSos={setSosResident}
             onAssist={setAssistResident}
-            onDetails={(r) => setQuickViewResident(residents.find((x) => x.id === r.id) ?? { ...r, room_number: null, status: "active" })}
+            onDetails={(r) => router.push(`/staff/residents/${r.id}`)}
           />
           </div>
         </div>
@@ -409,44 +384,13 @@ export default function StaffDashboard() {
       {/* MODALS */}
       {sosResident && <SOSModal key={sosResident.id} resident={sosResident} isOpen onClose={() => setSosResident(null)} />}
 
-      {quickViewResident && <ResidentQuickView resident={quickViewResident} onClose={() => setQuickViewResident(null)} />}
 
       {assistResident && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl border border-gray-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
-                <HelpCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-gray-900 text-lg">Request help</h3>
-                <p className="text-xs text-gray-400">For {assistResident.full_name}</p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 leading-relaxed mb-4">
-              Asks nearby staff or the supervisor for extra hands. Not for emergencies (use SOS).
-            </p>
-            <textarea
-              value={assistMessage}
-              onChange={(e) => setAssistMessage(e.target.value)}
-              placeholder="e.g., Need a second person for a transfer"
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-[#4F9C8B] mb-5 bg-[#FAFAF8]"
-            />
-            <div className="flex gap-3">
-              <button onClick={() => setAssistResident(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
-              <button
-                onClick={handleSendAssistance}
-                disabled={sendingAssist}
-                className="flex-1 py-3 rounded-xl bg-[#357366] hover:bg-[#2b5e53] text-white text-sm font-semibold disabled:opacity-40"
-              >
-                {sendingAssist ? "Sending..." : "Send request"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <HelpRequestModal
+          resident={assistResident}
+          onClose={() => setAssistResident(null)}
+          onSent={(e) => setActionError(e ? `Help request failed: ${e}` : null)}
+        />
       )}
 
       {showEndShift && user && (
@@ -467,7 +411,8 @@ export default function StaffDashboard() {
 
       {showHandover && <HandoverModal onClose={() => setShowHandover(false)} onSaved={refreshHandoverNotes} />}
 
-      <FloatingAIButton onClick={() => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH)} />
+      {!aiOpen && <FloatingAIButton onClick={() => setAiOpen(true)} />}
+      <ElderAIDock open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   );
 }

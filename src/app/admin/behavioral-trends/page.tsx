@@ -2228,7 +2228,8 @@ function ElderAIChatPageInner() {
     try {
       await supabase.auth.signOut();
     } finally {
-      window.location.href = "/login"; // change if your sign-in route differs
+      // When docked in a dashboard side panel, sign the whole window out.
+      (window.top ?? window).location.href = "/login";
     }
   }, [supabase]);
 

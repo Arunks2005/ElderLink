@@ -37,6 +37,10 @@ import {
   BedDouble,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { PENDING_BED_KEY } from '@/lib/wards/wards';
+import ElderAIDock, { DOCK_WIDTH_CLASS } from '@/components/ElderAIDock';
+import LiveAlerts from '@/components/LiveAlerts';
+import HelpRequestsBar from '@/components/HelpRequestsBar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ResidentStatus = 'active' | 'discharged' | 'deceased';
@@ -140,7 +144,6 @@ const NAV_ITEMS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: s
 
 // The chatbot is always launched with ?new=1 so every entry point starts
 // a fresh conversation instead of resuming whatever was last open.
-const BEHAVIORAL_AI_NEW_CHAT_PATH = '/admin/behavioral-trends?new=1';
 
 // Rotating tips shown in the floating assistant's speech bubble.
 const AI_TIPS = [
@@ -229,6 +232,7 @@ export default function AdminDashboard() {
 
   const [tab, setTab] = useState<Tab>('overview');
   const [mounted, setMounted] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // Residents state
   const [residents, setResidents] = useState<Resident[]>([]);
@@ -294,7 +298,17 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    // A bed QR tag scanned before signing in: continue to that bed now.
+    try {
+      const pendingBed = localStorage.getItem(PENDING_BED_KEY);
+      if (pendingBed) {
+        localStorage.removeItem(PENDING_BED_KEY);
+        router.push(`/b/${pendingBed}`);
+      }
+    } catch {
+      /* storage unavailable */
+    }
+  }, [router]);
 
   // ── Sign-out safety net against the browser back/forward cache ────────────
   useEffect(() => {
@@ -969,7 +983,7 @@ export default function AdminDashboard() {
 
   return (
     <div
-      className="h-screen overflow-hidden flex font-sans antialiased text-slate-900"
+      className={`h-screen overflow-hidden flex font-sans antialiased text-slate-900 transition-[padding] duration-300 ${aiOpen ? DOCK_WIDTH_CLASS : ''}`}
       style={{ background: 'linear-gradient(135deg, #eef3f1 0%, #f4f7f6 45%, #eaf2ee 100%)' }}
     >
       {/* ── SIDEBAR ──────────────────────────────────────────────────────────── */}
@@ -1071,6 +1085,15 @@ export default function AdminDashboard() {
 
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────────── */}
       <main className="flex-1 h-full overflow-y-auto">
+        {/* Fall alerts (incl. escalations nobody answered) on every tab. */}
+        <div className="px-8 xl:px-10 pt-6">
+          <div className="max-w-6xl mx-auto">
+            <div className="space-y-3">
+              <LiveAlerts />
+              <HelpRequestsBar />
+            </div>
+          </div>
+        </div>
         <div key={tab} className="min-h-full p-8 xl:p-10 animate-[fadeUp_0.4s_ease-out]">
 
           {/* ════ OVERVIEW ════════════════════════════════════════════════════ */}
@@ -1221,7 +1244,7 @@ export default function AdminDashboard() {
                       {[
                         { label: 'Add resident', icon: Plus, action: openAddResident },
                         { label: 'View staff', icon: ClipboardList, action: () => setTab('staff') },
-                        { label: 'Behavioral AI insights', icon: Bot, action: () => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH) },
+                        { label: 'Behavioral AI insights', icon: Bot, action: () => setAiOpen(true) },
                       ].map(({ label, icon: Icon, action }) => (
                         <button
                           key={label}
@@ -2207,7 +2230,8 @@ export default function AdminDashboard() {
       )}
 
       {/* ════ FLOATING AI ASSISTANT BUTTON ═══════════════════════════════════ */}
-      <FloatingAIButton onClick={() => router.push(BEHAVIORAL_AI_NEW_CHAT_PATH)} />
+      {!aiOpen && <FloatingAIButton onClick={() => setAiOpen(true)} />}
+      <ElderAIDock open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   );
 }

@@ -50,6 +50,7 @@ export default function VoiceCareLog({
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [interim, setInterim] = useState("");
   const [busy, setBusy] = useState(false);
   const [filled, setFilled] = useState<string[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -99,17 +100,27 @@ export default function VoiceCareLog({
     if (!Ctor) return;
     const rec = new Ctor();
     rec.continuous = true;
-    rec.interimResults = false;
+    // Show words as they are heard; regional-language final results can lag.
+    rec.interimResults = true;
     rec.lang = lang;
     rec.onresult = (e) => {
       let text = "";
+      let live = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) text += e.results[i][0].transcript + " ";
+        else live += e.results[i][0].transcript + " ";
       }
+      setInterim(live.trim());
       if (text.trim()) setTranscript((prev) => (prev ? `${prev.trim()} ` : "") + text.trim());
     };
-    rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      setInterim("");
+    };
+    rec.onerror = () => {
+      setListening(false);
+      setInterim("");
+    };
     recRef.current = rec;
     try {
       rec.start();
@@ -122,26 +133,29 @@ export default function VoiceCareLog({
   };
 
   const fillForm = async () => {
-    if (!transcript.trim()) return;
+    // Include words still being recognised, so "Fill form" never drops them.
+    const text = `${transcript} ${interim}`.trim();
+    if (!text) return;
     try {
       recRef.current?.stop();
     } catch {
       /* not running */
     }
     setListening(false);
+    setInterim("");
     setBusy(true);
     setNote(null);
     try {
       const res = await fetch("/api/parse-care-log", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: transcript, language: lang }),
+        body: JSON.stringify({ text, language: lang }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not read the note.");
       const fields = json.fields as ParsedCareLog;
       const info = CARE_LOG_LANGUAGES.find((l) => l.code === lang)!;
-      onApply(fields, transcript.trim(), { code: info.code, name: info.name });
+      onApply(fields, text, { code: info.code, name: info.name });
       setFilled(
         Object.keys(fields)
           .filter((k) => FIELD_LABELS[k])
@@ -200,6 +214,11 @@ export default function VoiceCareLog({
         className="w-full text-sm border border-teal-200 rounded-xl p-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
         aria-label="Spoken care note"
       />
+      {listening && (
+        <p className="text-xs text-slate-500 min-h-[1rem]" aria-live="polite">
+          {interim ? <span className="italic">{interim}…</span> : "Listening… speak naturally, then tap Fill the form."}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {supported && (
@@ -217,7 +236,7 @@ export default function VoiceCareLog({
         <button
           type="button"
           onClick={fillForm}
-          disabled={busy || !transcript.trim()}
+          disabled={busy || !(transcript.trim() || interim.trim())}
           className="inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-teal-700 text-white disabled:opacity-40"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}

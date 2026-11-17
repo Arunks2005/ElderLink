@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     }) + `\n\n<RESIDENT RECORDS>\n${context}\n</RESIDENT RECORDS>`;
 
   try {
-    const { reply, provider } = await askModel(system, messages);
+    const { reply, provider } = await askModel(system, messages, { reasoning: "low", maxTokens: 900 });
     return Response.json({ reply, provider, logsUsed, simulatedExcluded });
   } catch (e) {
     // Provider errors stay in the server log; families get a plain message.

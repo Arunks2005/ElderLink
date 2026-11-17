@@ -3,7 +3,7 @@
 /**
  * QR bed tag landing page: /b/{token}.
  * Looks up the bed (staff-only via row-level security) and opens its
- * resident's care log. If the phone isn't signed in yet, remembers the bed
+ * resident's details page (Log care, Help and SOS are one tap from there). If the phone isn't signed in yet, remembers the bed
  * and continues after sign-in from the staff dashboard.
  */
 
@@ -55,7 +55,7 @@ export default function BedScanPage({ params }: { params: Promise<{ token: strin
         setView({ kind: "empty", ward: wardName, bed: bed.label });
         return;
       }
-      router.replace(`/staff/residents/${bed.resident_id}/log`);
+      router.replace(`/staff/residents/${bed.resident_id}`);
     })();
     return () => {
       cancelled = true;
@@ -76,7 +76,7 @@ export default function BedScanPage({ params }: { params: Promise<{ token: strin
         {view.kind === "login" && (
           <>
             <p className="font-bold">Sign in to open this bed</p>
-            <p className="text-sm text-slate-500">After signing in, ElderLink will open this resident&apos;s care log.</p>
+            <p className="text-sm text-slate-500">After signing in, ElderLink will open this resident&apos;s page.</p>
             <Link href="/login" className="block bg-[#357366] text-white font-bold py-3 rounded-2xl">
               Staff sign in
             </Link>

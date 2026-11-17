@@ -1,335 +1,230 @@
 "use client";
 
-import { useEffect, useState } from "react";
+/**
+ * Live fall alerts with a step-by-step response, shown at the top of the
+ * staff and admin dashboards.
+ *
+ *   1. Alert   – appears instantly on every open dashboard with a repeating
+ *                alarm tone. Anyone can tap "I'm going".
+ *   2. Escalate – nobody responded in 2 min: marked "escalated" (supervisor /
+ *                admin dashboard); 5 min: "all staff".
+ *   3. Respond – at the resident: quick red-flag check. Any red flag means
+ *                don't lift, call 108. Otherwise help up safely and check vitals.
+ *   4. Tell family – one tap sends the SMS / WhatsApp alert.
+ *   5. Close   – record the outcome. A fall incident is saved to the
+ *                resident's record (family portal and handover see it).
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { AlertTriangle, BellOff, BellRing, CheckCircle2, Footprints, Loader2, Phone, Send, ShieldAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Resident = {
-  id: string;
-  full_name: string;
-  room_number: string | null;
-};
+type Resident = { id: string; full_name: string; room_number: string | null };
 
 type FallEvent = {
-  id: string;
+  id: number | string;
   resident_id: string | null;
   device_id: string | null;
   status: string | null;
   triggered_at: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by_name: string | null;
+  escalation_level: number | null;
+  family_notified_at: string | null;
 };
 
-type AlertWithResident = FallEvent & {
-  resident: Resident | null;
-};
+type Alert = FallEvent & { resident: Resident | null };
+
+const COLS =
+  "id, resident_id, device_id, status, triggered_at, acknowledged_at, acknowledged_by_name, escalation_level, family_notified_at";
+const OPEN = ["unresolved", "active", "acknowledged"];
+const ESCALATE_1_S = 120;
+const ESCALATE_2_S = 300;
+
+const RED_FLAGS = [
+  { key: "unresponsive", label: "Not responding, or not breathing normally" },
+  { key: "head", label: "Hit their head, or is bleeding" },
+  { key: "pain", label: "Severe pain, can't move a limb, or hip/leg looks wrong" },
+  { key: "confused", label: "New confusion, slurred speech or a drooping face" },
+] as const;
+type FlagKey = (typeof RED_FLAGS)[number]["key"];
+
+const OUTCOMES = [
+  { value: "no_injury", label: "No injury – helped up, vitals checked" },
+  { value: "minor_injury", label: "Minor injury – treated here" },
+  { value: "hospital", label: "Sent to hospital / doctor called" },
+  { value: "false_alarm", label: "False alarm – no fall" },
+] as const;
+
+function since(iso: string | null, now: number) {
+  if (!iso) return 0;
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+}
+
+function mmss(s: number) {
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** "SIM-RADAR60-BATH-WARDA" -> "Ward A bathroom"; falls back to the bed. */
+function placeOf(a: Alert) {
+  const d = (a.device_id ?? "").toUpperCase();
+  const ward = a.resident?.room_number?.split(" · ")[0];
+  const m = d.match(/BATH-WARD([A-Z0-9]+)/);
+  if (m) return `Ward ${m[1]} bathroom`;
+  if (d.includes("BATH")) return `${ward ?? "Ward"} bathroom`;
+  if (d.includes("PHONE") || !d) return a.resident?.room_number ?? "Phone fall detection";
+  return a.resident?.room_number ?? d;
+}
 
 export default function LiveAlerts() {
-  const [alerts, setAlerts] = useState<AlertWithResident[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [resolvingId, setResolvingId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState("Connecting");
+  const [connection, setConnection] = useState("Connecting");
+  const [now, setNow] = useState(() => Date.now());
+  const [muted, setMuted] = useState(false);
+  const me = useRef<{ id: string; name: string; role: "staff" | "admin" | null } | null>(null);
+
+  // ── data ──────────────────────────────────────────────────────────────
+  const attach = useCallback(async (events: FallEvent[]): Promise<Alert[]> => {
+    const supabase = createClient();
+    const ids = Array.from(new Set(events.map((e) => e.resident_id).filter((x): x is string => Boolean(x))));
+    const map = new Map<string, Resident>();
+    if (ids.length) {
+      const { data } = await supabase.from("residents").select("id, full_name, room_number").in("id", ids);
+      for (const r of data ?? []) map.set(r.id, r as Resident);
+    }
+    return events.map((e) => ({ ...e, resident: e.resident_id ? map.get(e.resident_id) ?? null : null }));
+  }, []);
+
+  const refreshOne = useCallback(
+    async (id: FallEvent["id"]) => {
+      const supabase = createClient();
+      const { data } = await supabase.from("fall_events").select(COLS).eq("id", id).maybeSingle();
+      if (!data || !OPEN.includes(String(data.status))) {
+        setAlerts((cur) => cur.filter((a) => String(a.id) !== String(id)));
+        return;
+      }
+      const [full] = await attach([data as FallEvent]);
+      setAlerts((cur) => {
+        const exists = cur.some((a) => String(a.id) === String(id));
+        return exists ? cur.map((a) => (String(a.id) === String(id) ? full : a)) : [full, ...cur];
+      });
+    },
+    [attach]
+  );
 
   useEffect(() => {
     const supabase = createClient();
+    let cancelled = false;
 
-    async function getResidents(
-      residentIds: string[],
-    ): Promise<Map<string, Resident>> {
-      const residentMap = new Map<string, Resident>();
-
-      const uniqueIds = Array.from(new Set(residentIds.filter(Boolean)));
-
-      if (uniqueIds.length === 0) {
-        return residentMap;
-      }
-
-      const { data, error } = await supabase
-        .from("residents")
-        .select("id, full_name, room_number")
-        .in("id", uniqueIds);
-
-      if (error) {
-        console.error("Failed to load residents:", error);
-        return residentMap;
-      }
-
-      for (const resident of data || []) {
-        residentMap.set(resident.id, resident as Resident);
-      }
-
-      return residentMap;
-    }
-
-    async function attachResidents(
-      events: FallEvent[],
-    ): Promise<AlertWithResident[]> {
-      const residentIds = events
-        .map((event) => event.resident_id)
-        .filter((id): id is string => Boolean(id));
-
-      const residentMap = await getResidents(residentIds);
-
-      return events.map((event) => ({
-        ...event,
-        resident: event.resident_id
-          ? residentMap.get(event.resident_id) || null
-          : null,
-      }));
-    }
-
-    async function loadAlerts() {
-      setLoading(true);
-
-      try {
-        const { data, error } = await supabase
-          .from("fall_events")
-          .select(
-            `
-              id,
-              resident_id,
-              device_id,
-              status,
-              triggered_at
-            `,
-          )
-          .in("status", ["unresolved", "active"])
-          .order("triggered_at", {
-            ascending: false,
-          });
-
-        if (error) {
-          console.error("Failed to load emergency alerts:", error);
-          setAlerts([]);
-          return;
-        }
-
-        const events = (data || []) as FallEvent[];
-
-        const alertsWithResidents = await attachResidents(events);
-
-        setAlerts(alertsWithResidents);
-      } catch (error) {
-        console.error("Emergency alert loading error:", error);
-        setAlerts([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    async function loadSingleAlert(
-      event: FallEvent,
-    ): Promise<AlertWithResident | null> {
-      try {
-        const { data, error } = await supabase
-          .from("fall_events")
-          .select(
-            `
-              id,
-              resident_id,
-              device_id,
-              status,
-              triggered_at
-            `,
-          )
-          .eq("id", event.id)
-          .single();
-
-        if (error || !data) {
-          console.error("Failed to load emergency details:", error);
-
-          return {
-            ...event,
-            resident: null,
-          };
-        }
-
-        const completeEvent = data as FallEvent;
-
-        const alertsWithResidents = await attachResidents([completeEvent]);
-
-        return alertsWithResidents[0] || null;
-      } catch (error) {
-        console.error("Emergency detail loading error:", error);
-
-        return {
-          ...event,
-          resident: null,
+    void (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (u.user) {
+        const [s, ad] = await Promise.all([
+          supabase.from("staff").select("full_name").eq("id", u.user.id).maybeSingle(),
+          supabase.from("admins").select("full_name").eq("id", u.user.id).maybeSingle(),
+        ]);
+        me.current = {
+          id: u.user.id,
+          name: s.data?.full_name || ad.data?.full_name || u.user.email?.split("@")[0] || "Staff",
+          role: ad.data ? "admin" : s.data ? "staff" : null,
         };
       }
-    }
-
-    loadAlerts();
+      const { data, error } = await supabase
+        .from("fall_events")
+        .select(COLS)
+        .in("status", OPEN)
+        .order("triggered_at", { ascending: false });
+      if (cancelled) return;
+      if (error) console.error("Failed to load fall alerts:", error.message);
+      setAlerts(await attach((data ?? []) as FallEvent[]));
+      setLoading(false);
+    })();
 
     const channel = supabase
       .channel("elderlink-live-emergency")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "fall_events",
-        },
-        async (payload) => {
-          console.log("New fall event:", payload.new);
-
-          const event = payload.new as FallEvent;
-
-          if (event.status !== "unresolved" && event.status !== "active") {
-            return;
-          }
-
-          const completeAlert = await loadSingleAlert(event);
-
-          if (!completeAlert) {
-            return;
-          }
-
-          setAlerts((current) => {
-            const alreadyExists = current.some(
-              (alert) => alert.id === completeAlert.id,
-            );
-
-            if (alreadyExists) {
-              return current;
-            }
-
-            return [completeAlert, ...current];
-          });
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "fall_events",
-        },
-        async (payload) => {
-          console.log("Updated fall event:", payload.new);
-
-          const updated = payload.new as FallEvent;
-
-          if (
-            updated.status === "resolved" ||
-            updated.status === "acknowledged"
-          ) {
-            setAlerts((current) =>
-              current.filter((alert) => alert.id !== updated.id),
-            );
-
-            return;
-          }
-
-          if (updated.status !== "unresolved" && updated.status !== "active") {
-            return;
-          }
-
-          const completeAlert = await loadSingleAlert(updated);
-
-          if (!completeAlert) {
-            return;
-          }
-
-          setAlerts((current) => {
-            const exists = current.some(
-              (alert) => alert.id === completeAlert.id,
-            );
-
-            if (!exists) {
-              return [completeAlert, ...current];
-            }
-
-            return current.map((alert) =>
-              alert.id === completeAlert.id ? completeAlert : alert,
-            );
-          });
-        },
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "fall_events" }, (payload) => {
+        const id = (payload.new as { id?: FallEvent["id"] })?.id ?? (payload.old as { id?: FallEvent["id"] })?.id;
+        if (id != null) void refreshOne(id);
+      })
       .subscribe((status) => {
-        console.log("Emergency realtime status:", status);
-
-        if (status === "SUBSCRIBED") {
-          setConnectionStatus("Connected");
-        } else if (status === "CHANNEL_ERROR") {
-          setConnectionStatus("Connection Error");
-        } else if (status === "TIMED_OUT") {
-          setConnectionStatus("Timed Out");
-        } else {
-          setConnectionStatus("Connecting");
-        }
+        setConnection(
+          status === "SUBSCRIBED" ? "Connected" : status === "CHANNEL_ERROR" ? "Connection error" : status === "TIMED_OUT" ? "Timed out" : "Connecting"
+        );
       });
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [attach, refreshOne]);
 
-  async function resolveAlert(alertId: string) {
-    if (resolvingId) {
-      return;
-    }
+  // ── clock, escalation, alarm tone ────────────────────────────────────
+  const waiting = useMemo(() => alerts.filter((a) => a.status !== "acknowledged"), [alerts]);
 
-    setResolvingId(alertId);
+  // Every second: tick the timers and escalate alerts nobody answered.
+  const alertsRef = useRef(alerts);
+  useEffect(() => {
+    alertsRef.current = alerts;
+  }, [alerts]);
 
+  useEffect(() => {
+    if (alerts.length === 0) return;
     const supabase = createClient();
-
-    try {
-      const { error } = await supabase
-        .from("fall_events")
-        .update({
-          status: "resolved",
-        })
-        .eq("id", alertId);
-
-      if (error) {
-        console.error("Failed to resolve alert:", error);
-        return;
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      for (const a of alertsRef.current) {
+        if (a.status === "acknowledged") continue;
+        const age = since(a.triggered_at, t);
+        const level = a.escalation_level ?? 0;
+        const target = age >= ESCALATE_2_S ? 2 : age >= ESCALATE_1_S ? 1 : 0;
+        if (target <= level) continue;
+        setAlerts((cur) => cur.map((x) => (x.id === a.id ? { ...x, escalation_level: target } : x)));
+        // Conditional update so several open dashboards escalate only once.
+        void supabase
+          .from("fall_events")
+          .update({ escalation_level: target, escalated_at: new Date(t).toISOString() })
+          .eq("id", a.id)
+          .lt("escalation_level", target)
+          .in("status", ["unresolved", "active"]);
       }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [alerts.length]);
 
-      setAlerts((current) => current.filter((alert) => alert.id !== alertId));
-    } catch (error) {
-      console.error("Resolve alert error:", error);
-    } finally {
-      setResolvingId(null);
-    }
-  }
+  const audio = useRef<AudioContext | null>(null);
+  useEffect(() => {
+    if (muted || waiting.length === 0) return;
+    const beep = () => {
+      try {
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        audio.current = audio.current ?? new Ctx();
+        const ctx = audio.current;
+        void ctx.resume();
+        [0, 0.35, 0.7].forEach((t) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.frequency.value = 880;
+          g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.25);
+          o.connect(g).connect(ctx.destination);
+          o.start(ctx.currentTime + t);
+          o.stop(ctx.currentTime + t + 0.3);
+        });
+      } catch {
+        /* audio blocked until the page is tapped */
+      }
+    };
+    beep();
+    const id = setInterval(beep, 10000);
+    return () => clearInterval(id);
+  }, [muted, waiting.length]);
 
-  function formatTime(timestamp: string | null | undefined) {
-    if (!timestamp) {
-      return "Time unavailable";
-    }
-
-    const date = new Date(timestamp);
-
-    if (Number.isNaN(date.getTime())) {
-      return "Time unavailable";
-    }
-
-    return date.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  }
-
-  function formatDate(timestamp: string | null | undefined) {
-    if (!timestamp) {
-      return "Date unavailable";
-    }
-
-    const date = new Date(timestamp);
-
-    if (Number.isNaN(date.getTime())) {
-      return "Date unavailable";
-    }
-
-    return date.toLocaleDateString([], {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
-  // All clear: a slim status bar instead of a large empty panel, so the
-  // dashboard space goes to residents. Any active alert shows the full panel.
+  // ── render ───────────────────────────────────────────────────────────
   if (!loading && alerts.length === 0) {
     return (
       <section className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -338,279 +233,307 @@ export default function LiveAlerts() {
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
         </span>
         <span className="font-semibold text-slate-800">No active emergencies</span>
-        <span className="text-xs text-slate-500">Fall and SOS alerts appear here instantly · {connectionStatus}</span>
+        <span className="text-xs text-slate-500">Fall alerts appear here instantly with an alarm tone · {connection}</span>
       </section>
     );
   }
+  if (loading) return null;
 
   return (
-    <section className="w-full">
+    <section className="w-full space-y-3" aria-live="assertive">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="inline-flex items-center gap-1.5 font-black text-red-700">
+          <ShieldAlert className="w-4 h-4" /> {alerts.length} active fall alert{alerts.length === 1 ? "" : "s"}
+        </span>
+        <span className="text-xs text-slate-500">· {connection}</span>
+        <button
+          onClick={() => setMuted((m) => !m)}
+          className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
+        >
+          {muted ? <BellOff className="w-3.5 h-3.5" /> : <BellRing className="w-3.5 h-3.5" />}
+          {muted ? "Alarm muted" : "Mute alarm"}
+        </button>
+      </div>
+      {alerts.map((a) => (
+        <FallCard key={String(a.id)} alert={a} now={now} me={me} onChanged={() => void refreshOne(a.id)} />
+      ))}
+    </section>
+  );
+}
+
+function FallCard({
+  alert: a,
+  now,
+  me,
+  onChanged,
+}: {
+  alert: Alert;
+  now: number;
+  me: React.RefObject<{ id: string; name: string; role: "staff" | "admin" | null } | null>;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [flags, setFlags] = useState<Record<FlagKey, boolean>>({ unresponsive: false, head: false, pain: false, confused: false });
+  const [outcome, setOutcome] = useState<string>("");
+  const [notes, setNotes] = useState("");
+  const [familyMsg, setFamilyMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const acknowledged = a.status === "acknowledged";
+  const age = since(a.triggered_at, now);
+  const level = a.escalation_level ?? 0;
+  const responseS = a.acknowledged_at && a.triggered_at ? since(a.triggered_at, new Date(a.acknowledged_at).getTime()) : null;
+  const anyRed = Object.values(flags).some(Boolean);
+  const name = a.resident?.full_name ?? "Unknown person";
+  const place = placeOf(a);
+
+  async function acknowledge() {
+    setBusy("ack");
+    setError(null);
+    const supabase = createClient();
+    const { error: e } = await supabase
+      .from("fall_events")
+      .update({
+        status: "acknowledged",
+        acknowledged_at: new Date().toISOString(),
+        acknowledged_by: me.current?.id ?? null,
+        acknowledged_by_name: me.current?.name ?? "Staff",
+      })
+      .eq("id", a.id)
+      .in("status", ["unresolved", "active"]);
+    setBusy(null);
+    if (e) setError(e.message);
+    onChanged();
+  }
+
+  async function notifyFamily() {
+    if (!a.resident_id) return;
+    setBusy("family");
+    setFamilyMsg(null);
+    try {
+      const res = await fetch("/api/emergency-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ residentId: a.resident_id, alertType: "fall", channels: ["sms", "whatsapp"] }),
+      });
+      const j = await res.json().catch(() => ({}));
+      const sent: string[] = j.sentChannels ?? [];
+      const fails: { reason?: string }[] = j.failures ?? [];
+      if (sent.length) {
+        await createClient().from("fall_events").update({ family_notified_at: new Date().toISOString() }).eq("id", a.id);
+        setFamilyMsg(`Family notified by ${sent.join(" + ")}.`);
+        onChanged();
+      } else {
+        setFamilyMsg(j.error ?? fails[0]?.reason ?? "Could not reach the family. Please phone them.");
+      }
+    } catch {
+      setFamilyMsg("Could not reach the family. Please phone them.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function close() {
+    if (!outcome) {
+      setError("Choose what happened before closing.");
+      return;
+    }
+    setBusy("close");
+    setError(null);
+    const supabase = createClient();
+    const flagged = RED_FLAGS.filter((f) => flags[f.key]).map((f) => f.label.toLowerCase());
+    const { error: e } = await supabase
+      .from("fall_events")
+      .update({
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        resolved_by: me.current?.id ?? null,
+        resolved_by_name: me.current?.name ?? "Staff",
+        outcome,
+        outcome_notes: notes.trim() || null,
+        assessment: flags,
+      })
+      .eq("id", a.id);
+    if (e) {
+      setBusy(null);
+      setError(e.message);
+      return;
+    }
+    if (a.resident_id && outcome !== "false_alarm") {
+      const label = OUTCOMES.find((o) => o.value === outcome)?.label ?? outcome;
+      await supabase.from("incidents").insert({
+        resident_id: a.resident_id,
+        staff_id: me.current?.role === "staff" ? me.current.id : null,
+        description:
+          `Fall in ${place}. ${label}.` +
+          (flagged.length ? ` Red flags: ${flagged.join("; ")}.` : " No red flags.") +
+          (responseS != null ? ` Staff reached them in ${mmss(responseS)}.` : "") +
+          (notes.trim() ? ` Notes: ${notes.trim()}` : "") +
+          (outcome !== "no_injury" || flagged.length ? " Watch closely for 24 h." : ""),
+      });
+    }
+    setBusy(null);
+    onChanged();
+  }
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border-2 bg-white shadow-sm ${acknowledged ? "border-amber-300" : "border-red-500"}`}>
       {/* Header */}
-      <div
-        className={`rounded-t-2xl border px-6 py-6 ${
-          alerts.length > 0
-            ? "border-red-200 bg-red-50"
-            : "border-slate-200 bg-white"
-        }`}
-      >
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div
-              className={`flex h-14 w-14 items-center justify-center rounded-full ${
-                alerts.length > 0 ? "bg-red-600" : "bg-slate-200"
-              }`}
-            >
-              <div className="h-4 w-4 rounded-full bg-white" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <h2
-                  className={`text-2xl font-semibold ${
-                    alerts.length > 0 ? "text-red-800" : "text-slate-900"
-                  }`}
-                >
-                  {alerts.length > 0
-                    ? "Live Emergency"
-                    : "Emergency Monitoring"}
-                </h2>
-
-                {alerts.length > 0 && (
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                )}
-              </div>
-
-              <p
-                className={`mt-1 ${
-                  alerts.length > 0 ? "text-red-600" : "text-slate-500"
-                }`}
-              >
-                {alerts.length > 0
-                  ? "Fall detection event requires immediate attention"
-                  : "Monitoring resident safety events in real time"}
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={`rounded-xl border px-6 py-3 text-center ${
-              alerts.length > 0
-                ? "border-red-200 bg-white"
-                : "border-slate-200 bg-slate-50"
-            }`}
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Status
-            </p>
-
-            <p
-              className={`mt-1 text-lg font-bold ${
-                alerts.length > 0 ? "text-red-600" : "text-slate-700"
-              }`}
-            >
-              {alerts.length > 0 ? "ACTIVE" : "CLEAR"}
-            </p>
-          </div>
+      <div className={`flex flex-wrap items-center gap-3 px-4 py-3 ${acknowledged ? "bg-amber-50" : "bg-red-600 text-white"}`}>
+        <span className={`flex h-10 w-10 items-center justify-center rounded-full ${acknowledged ? "bg-amber-500 text-white" : "bg-white text-red-600 animate-pulse"}`}>
+          <Footprints className="w-5 h-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-black text-lg leading-tight">
+            Fall: {name}
+          </p>
+          <p className={`text-sm ${acknowledged ? "text-amber-800" : "text-red-50"}`}>
+            {place} · detected {mmss(age)} ago
+          </p>
         </div>
-      </div>
-
-      {/* Connection / Alert summary */}
-      <div className="border-x border-slate-200 bg-white px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${
-                connectionStatus === "Connected"
-                  ? "bg-green-500"
-                  : connectionStatus === "Connection Error"
-                    ? "bg-red-500"
-                    : "bg-yellow-500"
-              }`}
-            />
-
-            <span className="text-slate-600">
-              Realtime:{" "}
-              <span className="font-medium text-slate-900">
-                {connectionStatus}
-              </span>
-            </span>
-          </div>
-
-          <div className="text-sm text-slate-500">
-            Active alerts:{" "}
-            <span className="font-semibold text-slate-900">
-              {alerts.length}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="rounded-b-2xl border border-t-0 border-slate-200 bg-white p-6">
-        {loading ? (
-          <div className="flex min-h-[180px] items-center justify-center">
-            <div className="text-center">
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
-              <p className="mt-4 text-sm text-slate-500">
-                Loading emergency alerts...
-              </p>
-            </div>
-          </div>
-        ) : alerts.length === 0 ? (
-          <div className="flex min-h-[180px] items-center justify-center">
-            <div className="text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-50">
-                <svg
-                  className="h-7 w-7 text-green-600"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </div>
-
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">
-                No active emergencies
-              </h3>
-
-              <p className="mt-1 text-sm text-slate-500">
-                The system is currently monitoring all fall detection events.
-              </p>
-            </div>
-          </div>
+        {acknowledged ? (
+          <span className="rounded-full bg-amber-100 border border-amber-300 px-3 py-1 text-xs font-bold text-amber-900">
+            {a.acknowledged_by_name ?? "Staff"} responding{responseS != null ? ` · reached in ${mmss(responseS)}` : ""}
+          </span>
         ) : (
-          <div className="space-y-5">
-            {alerts.map((alert) => {
-              const resident = alert.resident;
-
-              return (
-                <div
-                  key={alert.id}
-                  className="overflow-hidden rounded-2xl border border-red-200 bg-white shadow-sm"
-                >
-                  {/* Alert top */}
-                  <div className="border-b border-red-100 bg-red-50 px-5 py-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600">
-                          <div className="h-3 w-3 rounded-full bg-white" />
-                        </div>
-
-                        <div>
-                          <p className="font-semibold text-red-800">
-                            Fall Event
-                          </p>
-
-                          <p className="text-sm text-red-600">
-                            Immediate attention required
-                          </p>
-                        </div>
-                      </div>
-
-                      <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700">
-                        Active
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Main information */}
-                  <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 lg:grid-cols-4">
-                    {/* Resident */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Resident
-                      </p>
-
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
-                        {resident?.full_name || "Resident unavailable"}
-                      </p>
-
-                      {resident?.room_number && (
-                        <p className="mt-1 text-sm text-slate-500">
-                          {resident.room_number}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Detected */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Detected
-                      </p>
-
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
-                        {formatDate(alert.triggered_at)}
-                      </p>
-
-                      <p className="mt-1 text-sm text-slate-500">
-                        {formatTime(alert.triggered_at)}
-                      </p>
-                    </div>
-
-                    {/* Device */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Device
-                      </p>
-
-                      <p className="mt-2 text-lg font-semibold uppercase text-slate-900">
-                        {alert.device_id || "PHONE"}
-                      </p>
-
-                      <p className="mt-1 text-sm text-slate-500">
-                        Mobile detection
-                      </p>
-                    </div>
-
-                    {/* Detection */}
-                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Detection
-                      </p>
-
-                      <p className="mt-2 text-lg font-semibold text-red-600">
-                        Fall Event
-                      </p>
-
-                      <p className="mt-1 text-sm text-red-600">Automatic</p>
-                    </div>
-                  </div>
-
-                  {/* Bottom action */}
-                  <div className="flex flex-col gap-4 border-t border-slate-200 px-5 py-5 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        Immediate attention required
-                      </p>
-
-                      <p className="mt-1 text-sm text-slate-500">
-                        Verify the resident before resolving this alert.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => resolveAlert(alert.id)}
-                      disabled={resolvingId === alert.id}
-                      className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {resolvingId === alert.id
-                        ? "Resolving..."
-                        : "Acknowledge and Resolve"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <button
+            onClick={acknowledge}
+            disabled={busy === "ack"}
+            className="rounded-xl bg-white text-red-700 font-black px-5 py-3 text-base shadow hover:bg-red-50 disabled:opacity-60"
+          >
+            {busy === "ack" ? "…" : "I'm going"}
+          </button>
         )}
       </div>
-    </section>
+
+      {!acknowledged && level > 0 && (
+        <p className="flex items-center gap-2 bg-red-50 border-b border-red-200 px-4 py-2 text-sm font-semibold text-red-800">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {level >= 2
+            ? `No response for ${Math.floor(age / 60)} min: escalated to ALL staff and the admin. Anyone nearby, go now.`
+            : "No response for 2 min: escalated to the supervisor / admin dashboard."}
+        </p>
+      )}
+
+      {!acknowledged ? (
+        <div className="px-4 py-3 text-sm text-slate-700 grid sm:grid-cols-3 gap-2">
+          <Step n={1} active text="Tap “I'm going” so others know you're on it." />
+          <Step n={2} text="At the resident: don't lift yet. Do the quick check." />
+          <Step n={3} text="Tell family, record what happened, close." />
+        </div>
+      ) : (
+        <div className="p-4 space-y-4">
+          {/* Red-flag check */}
+          <div>
+            <p className="text-sm font-bold text-slate-900 mb-2">Quick check before moving them: tick anything that applies</p>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {RED_FLAGS.map((f) => (
+                <label
+                  key={f.key}
+                  className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer ${
+                    flags[f.key] ? "border-red-400 bg-red-50 text-red-900 font-semibold" : "border-slate-200"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-red-600"
+                    checked={flags[f.key]}
+                    onChange={(e) => setFlags((s) => ({ ...s, [f.key]: e.target.checked }))}
+                  />
+                  {f.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {anyRed ? (
+            <div className="rounded-xl bg-red-600 text-white p-3 text-sm space-y-2">
+              <p className="font-black text-base">Red flag: do NOT lift them</p>
+              <p>Call an ambulance, keep them still and warm, stay with them, and inform the nurse in charge and the doctor.</p>
+              <a href="tel:108" className="inline-flex items-center gap-2 bg-white text-red-700 font-black px-4 py-2 rounded-lg">
+                <Phone className="w-4 h-4" /> Call 108 ambulance
+              </a>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-900">
+              <p className="font-bold">No red flags</p>
+              <p>
+                Help them up slowly with two staff (or a sturdy chair), check pulse, BP and pain, then settle them. Watch them
+                closely for the next 24 hours.
+              </p>
+            </div>
+          )}
+
+          {/* Family */}
+          <div className="flex flex-wrap items-center gap-2">
+            {a.resident_id ? (
+              a.family_notified_at ? (
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                  <CheckCircle2 className="w-4 h-4" /> Family notified
+                </span>
+              ) : (
+                <button
+                  onClick={notifyFamily}
+                  disabled={busy === "family"}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold disabled:opacity-60"
+                >
+                  {busy === "family" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Tell the family (SMS / WhatsApp)
+                </button>
+              )
+            ) : (
+              <span className="text-sm text-slate-500">Radar could not identify the person: note who it was below.</span>
+            )}
+            {a.resident_id && (
+              <Link href={`/staff/residents/${a.resident_id}`} className="text-sm font-semibold text-[#357366] underline">
+                Resident details
+              </Link>
+            )}
+            {familyMsg && <span className="text-xs text-slate-600">{familyMsg}</span>}
+          </div>
+
+          {/* Close */}
+          <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-start">
+            <select
+              value={outcome}
+              onChange={(e) => setOutcome(e.target.value)}
+              className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white"
+              aria-label="What happened"
+            >
+              <option value="">What happened?</option>
+              {OUTCOMES.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notes (e.g. bruise on left arm, BP 130/80)"
+              className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm"
+            />
+            <button
+              onClick={close}
+              disabled={busy === "close"}
+              className="rounded-xl bg-slate-900 text-white font-bold px-5 py-2.5 text-sm disabled:opacity-60"
+            >
+              {busy === "close" ? "Saving…" : "Close alert"}
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <p className="px-4 pb-3 text-sm text-red-700">{error}</p>}
+    </div>
+  );
+}
+
+function Step({ n, text, active }: { n: number; text: string; active?: boolean }) {
+  return (
+    <p className={`flex items-start gap-2 rounded-xl px-3 py-2 ${active ? "bg-red-50 text-red-900 font-semibold" : "bg-slate-50"}`}>
+      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${active ? "bg-red-600 text-white" : "bg-slate-300 text-white"}`}>
+        {n}
+      </span>
+      {text}
+    </p>
   );
 }

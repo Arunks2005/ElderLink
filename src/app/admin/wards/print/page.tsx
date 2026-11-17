@@ -16,6 +16,7 @@ import QrCode from "@/components/QrCode";
 import { bedUrl, loadWards, type Ward } from "@/lib/wards/wards";
 
 const ORIGIN_KEY = "elderlink_qr_site";
+const LOCALHOST = /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/;
 
 export default function PrintBedTagsPage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function PrintBedTagsPage() {
   const [error, setError] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
   const [onlyWard, setOnlyWard] = useState<string | null>(null);
+  const [networkOrigins, setNetworkOrigins] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +44,22 @@ export default function PrintBedTagsPage() {
       } catch {
         /* storage unavailable */
       }
-      setOrigin(saved || window.location.origin);
+      const candidate = saved || window.location.origin;
+      setOrigin(candidate);
+      // Running locally: "localhost" in a QR code means the phone itself, so
+      // offer (and default to) this computer's Wi-Fi address instead.
+      if (LOCALHOST.test(candidate)) {
+        try {
+          const r = await fetch("/api/dev/network-address", { cache: "no-store" });
+          const j = r.ok ? ((await r.json()) as { origins?: string[] }) : {};
+          if (!cancelled && j.origins?.length) {
+            setNetworkOrigins(j.origins);
+            setOrigin(j.origins[0]);
+          }
+        } catch {
+          /* not running in dev */
+        }
+      }
       setOnlyWard(new URLSearchParams(window.location.search).get("ward"));
       setWards(res.wards);
       setError(res.error);
@@ -70,7 +87,8 @@ export default function PrintBedTagsPage() {
   }
 
   const shown = wards.filter((w) => !onlyWard || w.id === onlyWard);
-  const isLocal = /localhost|127\.0\.0\.1|^http:\/\/192\.168\./.test(origin);
+  const isLoopback = LOCALHOST.test(origin);
+  const isLan = !isLoopback && /^http:\/\/(192\.168|10|172)\./.test(origin);
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -93,10 +111,22 @@ export default function PrintBedTagsPage() {
             <Printer className="w-4 h-4" /> Print
           </button>
         </div>
-        {isLocal && (
+        {isLoopback && (
+          <p className="max-w-5xl mx-auto px-4 pb-3 text-xs text-red-700 font-semibold">
+            &quot;localhost&quot; won&apos;t work from a phone: on the phone it means the phone itself. Use this
+            computer&apos;s Wi-Fi address{networkOrigins.length ? "" : " (e.g. http://192.168.1.5:3000)"} or your HTTPS site.
+            {networkOrigins.map((o) => (
+              <button key={o} onClick={() => saveOrigin(o)} className="ml-2 underline">
+                Use {o}
+              </button>
+            ))}
+          </p>
+        )}
+        {isLan && (
           <p className="max-w-5xl mx-auto px-4 pb-3 text-xs text-amber-700">
-            This address only works on this computer or network. For real tags, enter your HTTPS site (e.g. your Vercel
-            address) so staff phones can open it anywhere.
+            Testing on your network: the phone must be on the same Wi-Fi or hotspot as this computer, and Windows must allow
+            Node.js through the firewall (private networks). College Wi-Fi often blocks phone-to-laptop traffic; if so,
+            connect the laptop to your phone&apos;s hotspot. For real tags, use your HTTPS site (e.g. your Vercel address).
           </p>
         )}
         {error && <p className="max-w-5xl mx-auto px-4 pb-3 text-xs text-red-700">{error}</p>}

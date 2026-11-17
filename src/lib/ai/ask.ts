@@ -15,7 +15,19 @@ export function aiConfigured() {
 export async function askModel(
   system: string,
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number } = {}
+  opts: {
+    maxTokens?: number;
+    temperature?: number;
+    /** Ask for a bare JSON object (faster, no ```json fences). */
+    json?: boolean;
+    /**
+     * Reasoning models (gpt-oss) "think" before answering. For quick
+     * extraction jobs use "low": with the default the thinking can use up
+     * max_tokens and the answer comes back empty (then we fall back to the
+     * slower provider).
+     */
+    reasoning?: "low" | "medium" | "high";
+  } = {}
 ): Promise<{ reply: string; provider: string }> {
   const maxTokens = opts.maxTokens ?? 700;
   const temperature = opts.temperature ?? 0.3;
@@ -24,11 +36,15 @@ export async function askModel(
   if (process.env.GROQ_API_KEY) {
     try {
       const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const model = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+      const isReasoning = /gpt-oss|qwen3|deepseek-r1/i.test(model);
       const completion = await groq.chat.completions.create({
-        model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+        model,
         temperature,
         max_tokens: maxTokens,
         messages: [{ role: "system", content: system }, ...messages],
+        ...(isReasoning && opts.reasoning ? { reasoning_effort: opts.reasoning } : {}),
+        ...(opts.json ? { response_format: { type: "json_object" as const } } : {}),
       });
       const reply = completion.choices[0]?.message?.content?.trim();
       if (reply) return { reply, provider: "groq" };
@@ -53,7 +69,12 @@ export async function askModel(
         const res = await gemini.models.generateContent({
           model,
           contents,
-          config: { systemInstruction: system, maxOutputTokens: maxTokens, temperature },
+          config: {
+            systemInstruction: system,
+            maxOutputTokens: maxTokens,
+            temperature,
+            ...(opts.json ? { responseMimeType: "application/json" } : {}),
+          },
         });
         const reply = typeof res.text === "string" ? res.text.trim() : "";
         if (reply) return { reply, provider: "gemini" };

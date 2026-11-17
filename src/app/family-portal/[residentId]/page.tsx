@@ -5,6 +5,29 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import FamilyChatWidget from "@/components/FamilyChatWidget";
+import {
+  Activity,
+  AlertTriangle,
+  BedDouble,
+  CalendarDays,
+  Camera,
+  ClipboardCheck,
+  Clock,
+  Coffee,
+  Droplets,
+  Heart,
+  HeartHandshake,
+  HeartPulse,
+  LogOut,
+  MessageCircleHeart,
+  Pill,
+  ShieldCheck,
+  Siren,
+  Smile,
+  Sun,
+  UserRound,
+  Utensils,
+} from "lucide-react";
 
 type Resident = {
   id: string;
@@ -322,7 +345,9 @@ export default function FamilyPortalPage({
   }, [residentId, router]);
 
   useEffect(() => {
-    loadAll();
+    // Defer one tick so the load isn't a synchronous setState in the effect.
+    const t = setTimeout(() => void loadAll(), 0);
+    return () => clearTimeout(t);
   }, [loadAll]);
 
   // ============================================================
@@ -416,481 +441,308 @@ export default function FamilyPortalPage({
     );
   }
 
+
   // ============================================================
   // TODAY'S DATA
   // ============================================================
 
-  const todayLogs = careLogs.filter(
-    (log) => log.created_at >= startOfTodayISO(),
-  );
-
+  const todayLogs = careLogs.filter((log) => log.created_at >= startOfTodayISO());
+  const latestToday = todayLogs[0] ?? null;
   const latestVitals = careLogs.find(
-    (log) =>
-      log.systolic != null ||
-      log.diastolic != null ||
-      log.heart_rate != null ||
-      log.temperature != null ||
-      log.pain_scale != null,
+    (log) => log.systolic != null || log.heart_rate != null || log.temperature != null || log.pain_scale != null,
   );
-
-  const latestCareLog = careLogs[0] ?? null;
-
   const careSummary = buildCareSummary(careLogs, todayLogs.length);
+  const firstName = (resident.full_name || "your relative").trim().split(/\s+/)[0];
+  const familyFirst = familyContact?.full_name?.trim().split(/\s+/)[0] ?? "";
+  const photos = careLogs.filter((l) => l.photo_url).slice(0, 8);
 
-  // ============================================================
-  // TIMELINE
-  // ============================================================
+  const todayTone = latestToday
+    ? [latestToday.meals, latestToday.fluids, latestToday.mood, latestToday.medication].map(toneOf)
+    : [];
+  const headline = !latestToday
+    ? { text: `No update for ${firstName} yet today`, sub: "Staff usually log after meals and medicines.", tone: "neutral" as const }
+    : todayTone.includes("bad")
+      ? { text: `Staff noted something to keep an eye on today`, sub: "The care team is aware. Details are below.", tone: "bad" as const }
+      : todayTone.includes("mid")
+        ? { text: `${firstName} had an okay day so far`, sub: "A few things were a little below usual.", tone: "mid" as const }
+        : { text: `${firstName} is doing well today`, sub: "Eating, drinking and medicines are on track.", tone: "good" as const };
+
+  // Care visits per day, last 7 days (from the logs loaded above).
+  const week = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (6 - i));
+    const next = new Date(d);
+    next.setDate(d.getDate() + 1);
+    const count = careLogs.filter((l) => {
+      const t = new Date(l.created_at);
+      return t >= d && t < next;
+    }).length;
+    return { label: d.toLocaleDateString("en-GB", { weekday: "short" }).slice(0, 2), count, isToday: i === 6 };
+  });
+  const maxWeek = Math.max(1, ...week.map((w) => w.count));
 
   const timeline: TimelineItem[] = [
-    ...careLogs.map((e) => ({
-      ...e,
-      _type: "care_log" as const,
-    })),
+    ...careLogs.map((e) => ({ ...e, _type: "care_log" as const })),
+    ...incidents.map((e) => ({ ...e, _type: "incident" as const })),
+    ...alerts.map((e) => ({ ...e, _type: "emergency_alert" as const })),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    ...incidents.map((e) => ({
-      ...e,
-      _type: "incident" as const,
-    })),
-
-    ...alerts.map((e) => ({
-      ...e,
-      _type: "emergency_alert" as const,
-    })),
-  ].sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
-
-  // ============================================================
-  // PAGE
-  // ============================================================
+  const lastUpdate = careSummary.latestAt;
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
-      {/* ========================================================
-          HEADER
-      ======================================================== */}
-
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-20">
-        <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-[#F7F5F0] text-gray-900">
+      {/* HEADER */}
+      <header className="bg-white/90 backdrop-blur border-b border-gray-100 sticky top-0 z-20">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-[#EAF4F1] flex items-center justify-center">
-              <span className="text-[#357366] font-bold text-sm">EL</span>
+            <div className="w-9 h-9 rounded-xl bg-[#EAF4F1] flex items-center justify-center">
+              <HeartHandshake className="w-5 h-5 text-[#357366]" />
             </div>
-
-            <span className="font-bold text-gray-900">ElderLink</span>
-
-            <span className="text-gray-300 mx-1">|</span>
-
-            <span className="text-sm text-gray-500">Family</span>
+            <div className="leading-tight">
+              <p className="font-bold text-gray-900">
+                Elder<span className="text-[#4F9C8B]">Link</span>
+              </p>
+              <p className="text-[11px] text-gray-500">Family portal</p>
+            </div>
           </div>
-
           <button
             onClick={handleSignOut}
-            className="text-xs text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg transition-all"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-red-600 border border-gray-200 hover:border-red-200 px-3 py-2 rounded-xl transition-all"
           >
-            Sign out
+            <LogOut className="w-3.5 h-3.5" /> Sign out
           </button>
         </div>
       </header>
 
-      {/* ========================================================
-          MAIN
-      ======================================================== */}
-
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-8">
-        {/* ======================================================
-            WELCOME
-        ====================================================== */}
-
-        {familyContact && (
-          <div className="bg-[#EAF4F1] border border-[#D7EDE7] rounded-2xl px-5 py-4">
-            <p className="text-xs text-[#357366] font-medium">Welcome back</p>
-
-            <p className="text-sm font-semibold text-gray-900 mt-1">
-              {familyContact.full_name}
-              {familyContact.relationship
-                ? ` · ${familyContact.relationship}`
-                : ""}
-            </p>
-          </div>
-        )}
-
-        {/* ======================================================
-            RESIDENT CARD
-        ====================================================== */}
-
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 flex items-center gap-4">
-          {resident.photo_url ? (
-            <Image
-              src={resident.photo_url}
-              alt={resident.full_name}
-              width={64}
-              height={64}
-              className="w-16 h-16 rounded-full object-cover border border-gray-100 flex-shrink-0"
-            />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-[#EAF4F1] text-[#357366] font-bold text-xl flex items-center justify-center flex-shrink-0">
-              {initials(resident.full_name)}
-            </div>
-          )}
-
-          <div className="min-w-0">
-            <h1 className="font-bold text-lg text-gray-900 truncate">
-              {resident.full_name}
-            </h1>
-
-            <p className="text-sm text-gray-400">
-              {resident.room_number
-                ? resident.room_number
-                : "No room assigned"}
-
-              {resident.dob &&
-                ` · DOB ${new Date(resident.dob).toLocaleDateString()}`}
-            </p>
-          </div>
-        </div>
-
-        {/* ======================================================
-            TODAY'S SUMMARY
-        ====================================================== */}
-
-        <section>
-          <SectionTitle>Today&apos;s summary</SectionTitle>
-
-          {todayLogs.length === 0 ? (
-            <EmptyCard text="No care activity logged yet today." />
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <SummaryCard
-                label="Meals"
-                value={latestCareLog?.meals || "—"}
-              />
-
-              <SummaryCard
-                label="Fluids"
-                value={latestCareLog?.fluids || "—"}
-              />
-
-              <SummaryCard
-                label="Mood"
-                value={latestCareLog?.mood || "—"}
-              />
-
-              <SummaryCard
-                label="Medication"
-                value={latestCareLog?.medication || "—"}
-              />
-            </div>
-          )}
-        </section>
-
-        {/* ======================================================
-            CARE SUMMARY REPORT
-            Calculated directly from the care_logs_demo rows shown
-            above. Nothing here is hard-coded.
-        ====================================================== */}
-
-        <section>
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <SectionTitle>Care summary report</SectionTitle>
-            <span className="text-xs text-gray-400">
-              Based on {careSummary.totalLogs} recent log
-              {careSummary.totalLogs === 1 ? "" : "s"}
-            </span>
-          </div>
-
-          {careSummary.totalLogs === 0 ? (
-            <EmptyCard text="No care logs are available for this resident yet." />
-          ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <SummaryCard
-                  label="Logs"
-                  value={String(careSummary.totalLogs)}
+      <main className="max-w-5xl mx-auto px-4 pb-16">
+        {/* HERO */}
+        <section className="relative mt-5 rounded-[28px] overflow-hidden min-h-[260px] sm:min-h-[300px] shadow-xl shadow-[#357366]/10">
+          <Image
+            src={HERO_IMG}
+            alt="A carer holding an older person's hand"
+            fill
+            priority
+            sizes="(max-width: 1024px) 100vw, 1024px"
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#1E3D36]/95 via-[#1E3D36]/75 to-[#1E3D36]/20" />
+          <div className="relative p-6 sm:p-8 flex flex-col sm:flex-row sm:items-end gap-5 h-full min-h-[260px] sm:min-h-[300px] justify-end">
+            <div className="flex items-center gap-4">
+              {resident.photo_url ? (
+                <Image
+                  src={resident.photo_url}
+                  alt={resident.full_name}
+                  width={88}
+                  height={88}
+                  className="w-[88px] h-[88px] rounded-3xl object-cover border-4 border-white/80 shadow-lg"
                 />
-                <SummaryCard
-                  label="Today"
-                  value={String(careSummary.todayLogs)}
-                />
-                <SummaryCard
-                  label="Notes"
-                  value={String(careSummary.noteCount)}
-                />
-                <SummaryCard
-                  label="Pain ≥ 6"
-                  value={String(careSummary.painConcernCount)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <ReportMetricCard
-                  label="Avg Heart Rate"
-                  value={
-                    careSummary.avgHeartRate != null
-                      ? `${careSummary.avgHeartRate.toFixed(1)} bpm`
-                      : "—"
-                  }
-                />
-                <ReportMetricCard
-                  label="Avg Temperature"
-                  value={
-                    careSummary.avgTemperature != null
-                      ? `${careSummary.avgTemperature.toFixed(1)} °F`
-                      : "—"
-                  }
-                />
-                <ReportMetricCard
-                  label="Avg Pain"
-                  value={
-                    careSummary.avgPain != null
-                      ? `${careSummary.avgPain.toFixed(1)} / 10`
-                      : "—"
-                  }
-                />
-                <ReportMetricCard
-                  label="Avg BP"
-                  value={
-                    careSummary.avgSystolic != null ||
-                    careSummary.avgDiastolic != null
-                      ? `${careSummary.avgSystolic != null ? careSummary.avgSystolic.toFixed(0) : "—"}/${careSummary.avgDiastolic != null ? careSummary.avgDiastolic.toFixed(0) : "—"}`
-                      : "—"
-                  }
-                />
-              </div>
-
-              <div className="bg-white rounded-2xl border border-gray-100 p-5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <ReportTextRow
-                    label="Log sources"
-                    value={[
-                      careSummary.manualCount
-                        ? `Manual: ${careSummary.manualCount}`
-                        : null,
-                      careSummary.sensorCount
-                        ? `Sensor: ${careSummary.sensorCount}`
-                        : null,
-                      careSummary.demoCount
-                        ? `Demo: ${careSummary.demoCount}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
-                  />
-
-                  <ReportTextRow
-                    label="Report period"
-                    value={
-                      careSummary.earliestAt && careSummary.latestAt
-                        ? `${careSummary.earliestAt.toLocaleDateString("en-GB")} – ${careSummary.latestAt.toLocaleDateString("en-GB")}`
-                        : "—"
-                    }
-                  />
+              ) : (
+                <div className="w-[88px] h-[88px] rounded-3xl bg-white/90 text-[#357366] font-black text-3xl flex items-center justify-center shadow-lg">
+                  {initials(resident.full_name)}
                 </div>
-
-                {careSummary.latestNotes.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">
-                      Recent staff notes
-                    </p>
-                    <div className="space-y-2">
-                      {careSummary.latestNotes.map((log) => (
-                        <div
-                          key={log.id}
-                          className="rounded-xl bg-[#FAFAF8] border border-gray-100 p-3"
-                        >
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                            {log.notes}
-                          </p>
-                          <p className="text-[11px] text-gray-400 mt-1">
-                            {new Date(log.created_at).toLocaleString("en-GB", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              day: "2-digit",
-                              month: "short",
-                            })}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {latestCareLog && (
-                <div className="bg-[#EAF4F1] border border-[#D7EDE7] rounded-2xl p-5">
-                  <p className="text-xs font-semibold text-[#357366] mb-3">
-                    Latest care log
-                  </p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <ReportMetricCard
-                      label="Meals"
-                      value={latestCareLog.meals || "—"}
-                    />
-                    <ReportMetricCard
-                      label="Fluids"
-                      value={latestCareLog.fluids || "—"}
-                    />
-                    <ReportMetricCard
-                      label="Mood"
-                      value={latestCareLog.mood || "—"}
-                    />
-                    <ReportMetricCard
-                      label="Medication"
-                      value={latestCareLog.medication || "—"}
-                    />
-                  </div>
-
-                  {latestCareLog.notes && (
-                    <div className="mt-3">
-                      <ReportTextRow
-                        label="Latest note"
-                        value={latestCareLog.notes}
-                      />
-                    </div>
+              )}
+              <div className="text-white min-w-0">
+                <p className="text-sm text-white/80">
+                  {familyFirst ? `Hello ${familyFirst}` : "Welcome back"}
+                  {familyContact?.relationship ? ` · ${familyContact.relationship}` : ""}
+                </p>
+                <h1 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight truncate">{resident.full_name}</h1>
+                <p className="mt-1 text-sm text-white/85 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="inline-flex items-center gap-1">
+                    <BedDouble className="w-4 h-4" /> {resident.room_number || "Bed not assigned"}
+                  </span>
+                  {lastUpdate && (
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="w-4 h-4" /> Last update {relativeTime(lastUpdate)}
+                    </span>
                   )}
+                </p>
+              </div>
+            </div>
+            <div className="sm:ml-auto">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/25 backdrop-blur px-3 py-1.5 text-xs font-semibold text-white">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
+                Live updates from the care team
+              </span>
+            </div>
+          </div>
+        </section>
 
-                  <p className="text-[11px] text-gray-400 mt-3">
-                    Source: {latestCareLog.entry_source || "unknown"} ·{" "}
-                    {new Date(latestCareLog.created_at).toLocaleString("en-GB", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      day: "2-digit",
-                      month: "short",
-                    })}
+        {/* TODAY HEADLINE + TILES */}
+        <section className="mt-6">
+          <div
+            className={`rounded-3xl border p-5 flex items-start gap-4 ${
+              headline.tone === "good"
+                ? "bg-emerald-50 border-emerald-200"
+                : headline.tone === "mid"
+                  ? "bg-amber-50 border-amber-200"
+                  : headline.tone === "bad"
+                    ? "bg-rose-50 border-rose-200"
+                    : "bg-white border-gray-200"
+            }`}
+          >
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                headline.tone === "good"
+                  ? "bg-emerald-500 text-white"
+                  : headline.tone === "mid"
+                    ? "bg-amber-500 text-white"
+                    : headline.tone === "bad"
+                      ? "bg-rose-500 text-white"
+                      : "bg-gray-100 text-gray-500"
+              }`}
+            >
+              {headline.tone === "good" ? <Sun className="w-6 h-6" /> : headline.tone === "neutral" ? <Coffee className="w-6 h-6" /> : <Heart className="w-6 h-6" />}
+            </div>
+            <div>
+              <p className="text-lg font-extrabold text-gray-900">{headline.text}</p>
+              <p className="text-sm text-gray-600">{headline.sub}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+            <TodayTile icon={<Utensils className="w-5 h-5" />} label="Meals" value={latestToday?.meals ?? null} friendly={FRIENDLY.meals} />
+            <TodayTile icon={<Droplets className="w-5 h-5" />} label="Drinking" value={latestToday?.fluids ?? null} friendly={FRIENDLY.fluids} />
+            <TodayTile icon={<Smile className="w-5 h-5" />} label="Mood" value={latestToday?.mood ?? null} friendly={FRIENDLY.mood} />
+            <TodayTile icon={<Pill className="w-5 h-5" />} label="Medicines" value={latestToday?.medication ?? null} friendly={FRIENDLY.medication} />
+          </div>
+        </section>
+
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-6 mt-6 items-start">
+          <div className="space-y-6">
+            {/* VITALS */}
+            <Panel
+              title="Latest health checks"
+              icon={<HeartPulse className="w-4 h-4" />}
+              aside={latestVitals ? `Checked ${relativeTime(new Date(latestVitals.created_at))}` : undefined}
+            >
+              {!latestVitals ? (
+                <EmptyCard text="No health checks recorded yet." />
+              ) : (
+                <div className="grid sm:grid-cols-[1fr_200px] gap-4 items-stretch">
+                  <div className="grid grid-cols-2 gap-3">
+                    <VitalCard
+                      label="Blood pressure"
+                      value={latestVitals.systolic != null ? `${latestVitals.systolic}/${latestVitals.diastolic ?? "—"}` : "—"}
+                      unit="mmHg"
+                      hint="Usual: around 120/80"
+                    />
+                    <VitalCard label="Heart rate" value={latestVitals.heart_rate ?? "—"} unit="bpm" hint="Usual: 60–100" />
+                    <VitalCard label="Temperature" value={latestVitals.temperature ?? "—"} unit="°F" hint="Usual: 97–99 °F" />
+                    <VitalCard
+                      label="Pain"
+                      value={latestVitals.pain_scale != null ? `${latestVitals.pain_scale}/10` : "—"}
+                      unit=""
+                      hint={latestVitals.pain_note || "0 means no pain"}
+                    />
+                  </div>
+                  <div className="relative hidden sm:block rounded-2xl overflow-hidden min-h-[180px]">
+                    <Image src={CARE_IMG} alt="A nurse checking a resident's blood pressure" fill sizes="200px" className="object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    <p className="absolute bottom-3 left-3 right-3 text-xs font-semibold text-white">
+                      Checked by trained staff at {resident.room_number?.split(" · ")[0] ?? "the home"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </Panel>
+
+            {/* WEEK */}
+            <Panel title="Care visits this week" icon={<CalendarDays className="w-4 h-4" />} aside={`${careSummary.totalLogs} recent updates`}>
+              <div className="flex items-end gap-2 h-32">
+                {week.map((w) => (
+                  <div key={w.label + w.isToday} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                    <span className="text-[11px] font-bold text-gray-500">{w.count || ""}</span>
+                    <div
+                      className={`w-full rounded-xl ${w.isToday ? "bg-[#357366]" : w.count ? "bg-[#9CCFC2]" : "bg-gray-100"}`}
+                      style={{ height: `${Math.max(8, (w.count / maxWeek) * 80)}%` }}
+                    />
+                    <span className={`text-[11px] ${w.isToday ? "font-bold text-[#357366]" : "text-gray-400"}`}>{w.isToday ? "Today" : w.label}</span>
+                  </div>
+                ))}
+              </div>
+              {careSummary.latestNotes.length > 0 && (
+                <div className="mt-5 space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Notes from the care team</p>
+                  {careSummary.latestNotes.map((log) => (
+                    <blockquote key={log.id} className="rounded-2xl bg-[#F7F5F0] border-l-4 border-[#4F9C8B] px-4 py-3">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{log.notes}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">{formatWhen(log.created_at)}</p>
+                    </blockquote>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            {/* MOMENTS */}
+            <Panel title="Moments" icon={<Camera className="w-4 h-4" />}>
+              {photos.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {photos.map((p) => (
+                    <div key={p.id} className="relative aspect-square rounded-2xl overflow-hidden bg-gray-100">
+                      <Image src={p.photo_url!} alt={`Photo shared on ${formatWhen(p.created_at)}`} fill sizes="200px" className="object-cover" />
+                      <span className="absolute bottom-1.5 left-1.5 rounded-lg bg-black/50 px-1.5 py-0.5 text-[10px] text-white">{formatWhen(p.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="relative rounded-2xl overflow-hidden min-h-[160px] flex items-end">
+                  <Image src={CONNECT_IMG} alt="" fill sizes="(max-width: 1024px) 100vw, 640px" className="object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#1E3D36]/90 via-[#1E3D36]/40 to-transparent" />
+                  <p className="relative p-4 text-sm text-white">
+                    <span className="font-bold block text-base">Photos will appear here</span>
+                    When staff add a photo to {firstName}&apos;s care log, you&apos;ll see it here first.
                   </p>
                 </div>
               )}
-            </div>
-          )}
-        </section>
+            </Panel>
 
-        {/* ======================================================
-            LATEST VITALS
-        ====================================================== */}
+            {/* TIMELINE */}
+            <Panel title="Recent activity" icon={<Activity className="w-4 h-4" />}>
+              <EventList events={timeline.slice(0, 10)} />
+            </Panel>
+          </div>
 
-        {latestVitals && (
-          <section>
-            <SectionTitle>Latest vitals</SectionTitle>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {latestVitals.systolic && latestVitals.diastolic && (
-                <VitalCard
-                  label="Blood Pressure"
-                  value={`${latestVitals.systolic}/${latestVitals.diastolic}`}
-                  unit="mmHg"
-                />
-              )}
-
-              {latestVitals.heart_rate && (
-                <VitalCard
-                  label="Heart Rate"
-                  value={latestVitals.heart_rate}
-                  unit="bpm"
-                />
-              )}
-
-              {latestVitals.temperature && (
-                <VitalCard
-                  label="Temperature"
-                  value={latestVitals.temperature}
-                  unit="°F"
-                />
-              )}
-
-              {latestVitals.pain_scale != null && (
-                <VitalCard
-                  label="Pain Scale"
-                  value={`${latestVitals.pain_scale}/10`}
-                  unit={latestVitals.pain_note || ""}
-                />
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* ======================================================
-            RECENT MOMENTS
-        ====================================================== */}
-
-        <section>
-          <SectionTitle>Recent moments</SectionTitle>
-
-          <p className="text-sm text-gray-400 mb-3">
-            Candid photos shared by staff will appear here.
-          </p>
-
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="aspect-square rounded-xl bg-[#EAF4F1] flex items-center justify-center text-gray-300 text-2xl"
-              >
-                📷
+          {/* SIDE */}
+          <aside className="space-y-6 lg:sticky lg:top-20">
+            <Panel title={`About ${firstName}`} icon={<UserRound className="w-4 h-4" />}>
+              <div className="space-y-3">
+                <DetailRow label="Full name" value={resident.full_name} />
+                <DetailRow label="Date of birth" value={resident.dob ? new Date(resident.dob).toLocaleDateString("en-GB") : "—"} />
+                <DetailRow label="Ward / bed" value={resident.room_number || "—"} />
+                <DetailRow label="Medical notes" value={resident.medical_notes || "—"} multiline />
               </div>
-            ))}
-          </div>
-        </section>
+            </Panel>
 
-        {/* ======================================================
-            UPCOMING EVENTS
-        ====================================================== */}
+            <div className="rounded-3xl bg-gradient-to-br from-[#357366] to-[#2B5E53] text-white p-5 shadow-lg shadow-[#357366]/20">
+              <MessageCircleHeart className="w-7 h-7 text-emerald-200" />
+              <p className="mt-2 font-bold text-lg">Questions about {firstName}?</p>
+              <p className="text-sm text-white/80 mt-1">
+                Ask the ElderLink assistant (bottom right) about meals, mood or recent care. It answers from {firstName}&apos;s
+                records only.
+              </p>
+              <p className="text-xs text-white/60 mt-3">For anything urgent, please phone the home directly.</p>
+            </div>
 
-        <section>
-          <SectionTitle>Upcoming events</SectionTitle>
-
-          <EmptyCard text="No upcoming events scheduled yet." />
-        </section>
-
-        {/* ======================================================
-            RECENT ACTIVITY
-        ====================================================== */}
-
-        <section>
-          <SectionTitle>Recent activity</SectionTitle>
-
-          <EventList events={timeline.slice(0, 10)} />
-        </section>
-
-        {/* ======================================================
-            RESIDENT DETAILS
-        ====================================================== */}
-
-        <section>
-          <SectionTitle>Resident details</SectionTitle>
-
-          <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
-            <DetailRow label="Full Name" value={resident.full_name} />
-
-            <DetailRow
-              label="Date of Birth"
-              value={
-                resident.dob ? new Date(resident.dob).toLocaleDateString() : "—"
-              }
-            />
-
-            <DetailRow
-              label="Ward / bed"
-              value={resident.room_number || "—"}
-            />
-
-            <DetailRow label="Address" value={resident.address || "—"} />
-
-            <DetailRow
-              label="Medical Notes"
-              value={resident.medical_notes || "—"}
-              multiline
-            />
-          </div>
-        </section>
+            <div className="rounded-3xl bg-white border border-gray-100 p-5">
+              <p className="flex items-center gap-2 font-semibold text-gray-900">
+                <ShieldCheck className="w-4 h-4 text-[#357366]" /> Your privacy
+              </p>
+              <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">
+                Only family members linked by the home can see this page, and only for {firstName}. You&apos;ll get an SMS or
+                WhatsApp message straight away if there&apos;s an emergency.
+              </p>
+            </div>
+          </aside>
+        </div>
       </main>
 
       {/* Resident-scoped assistant; access is re-checked on the server. */}
-      <FamilyChatWidget
-        residentId={residentId}
-        residentFirstName={(resident.full_name || "your relative").trim().split(/\s+/)[0]}
-      />
+      <FamilyChatWidget residentId={residentId} residentFirstName={firstName} />
     </div>
   );
 }
@@ -899,199 +751,167 @@ export default function FamilyPortalPage({
 // COMPONENTS
 // ================================================================
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="font-semibold text-gray-900 mb-3">{children}</h2>;
+const HERO_IMG = "https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=1600&q=80";
+const CARE_IMG = "https://images.unsplash.com/photo-1542884748-2b87b36c6b90?auto=format&fit=crop&w=600&q=80";
+const CONNECT_IMG = "https://images.unsplash.com/photo-1544027993-37dbfe43562a?auto=format&fit=crop&w=1200&q=80";
+
+type Tone = "good" | "mid" | "bad" | "none";
+
+const TONE_OF: Record<string, Tone> = {
+  "ate fully": "good",
+  good: "good",
+  happy: "good",
+  calm: "good",
+  given: "good",
+  partially: "mid",
+  low: "mid",
+  refused: "bad",
+  none: "bad",
+  agitated: "bad",
+  confused: "bad",
+  missed: "bad",
+};
+
+function toneOf(v: string | null | undefined): Tone {
+  if (!v) return "none";
+  return TONE_OF[v.trim().toLowerCase()] ?? "mid";
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
+const FRIENDLY: Record<"meals" | "fluids" | "mood" | "medication", Record<string, string>> = {
+  meals: { "ate fully": "Ate well", partially: "Ate some", refused: "Didn't eat" },
+  fluids: { good: "Drinking well", low: "Drinking less", none: "Not drinking" },
+  mood: { happy: "Happy", calm: "Calm", agitated: "Unsettled", confused: "A little confused" },
+  medication: { given: "Taken", refused: "Refused", missed: "Missed" },
+};
 
-      <p className="text-sm font-semibold text-gray-900 capitalize">{value}</p>
+const TONE_STYLE: Record<Tone, { card: string; icon: string; dot: string }> = {
+  good: { card: "bg-white border-emerald-100", icon: "bg-emerald-50 text-emerald-600", dot: "bg-emerald-500" },
+  mid: { card: "bg-white border-amber-100", icon: "bg-amber-50 text-amber-600", dot: "bg-amber-500" },
+  bad: { card: "bg-white border-rose-200", icon: "bg-rose-50 text-rose-600", dot: "bg-rose-500" },
+  none: { card: "bg-white border-gray-100", icon: "bg-gray-50 text-gray-400", dot: "bg-gray-300" },
+};
+
+function TodayTile({
+  icon,
+  label,
+  value,
+  friendly,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | null;
+  friendly: Record<string, string>;
+}) {
+  const tone = toneOf(value);
+  const s = TONE_STYLE[tone];
+  return (
+    <div className={`rounded-3xl border p-4 ${s.card}`}>
+      <div className="flex items-center justify-between">
+        <span className={`w-10 h-10 rounded-2xl flex items-center justify-center ${s.icon}`}>{icon}</span>
+        <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+      </div>
+      <p className="text-xs font-semibold text-gray-500 mt-3">{label}</p>
+      <p className="text-base font-extrabold text-gray-900">{value ? friendly[value.trim().toLowerCase()] ?? value : "Not logged yet"}</p>
     </div>
   );
 }
 
-function VitalCard({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: string | number;
-  unit: string;
-}) {
+function Panel({ title, icon, aside, children }: { title: string; icon: React.ReactNode; aside?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[#EAF4F1] rounded-xl border border-[#D7EDE7] p-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
+    <section className="bg-white rounded-3xl border border-gray-100 shadow-sm shadow-gray-200/40 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="w-8 h-8 rounded-xl bg-[#EAF4F1] text-[#357366] flex items-center justify-center">{icon}</span>
+        <h2 className="font-bold text-gray-900">{title}</h2>
+        {aside && <span className="ml-auto text-xs text-gray-400">{aside}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
 
-      <p className="text-lg font-bold text-[#357366]">
-        {value}{" "}
-        <span className="text-xs font-medium text-gray-400">{unit}</span>
+function VitalCard({ label, value, unit, hint }: { label: string; value: string | number; unit: string; hint: string }) {
+  return (
+    <div className="rounded-2xl bg-[#F7F5F0] p-4">
+      <p className="text-xs font-semibold text-gray-500">{label}</p>
+      <p className="text-2xl font-black text-[#2B5E53] mt-0.5">
+        {value} <span className="text-xs font-semibold text-gray-400">{unit}</span>
       </p>
-    </div>
-  );
-}
-
-function ReportMetricCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      <p className="text-sm font-semibold text-gray-900 capitalize">{value}</p>
-    </div>
-  );
-}
-
-function ReportTextRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-400 mb-1">{label}</p>
-      <p className="text-sm text-gray-900 whitespace-pre-wrap">{value}</p>
+      <p className="text-[11px] text-gray-400 mt-0.5 truncate">{hint}</p>
     </div>
   );
 }
 
 function EmptyCard({ text }: { text: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 text-sm text-gray-400">
-      {text}
-    </div>
-  );
+  return <div className="rounded-2xl bg-[#F7F5F0] p-5 text-sm text-gray-500">{text}</div>;
 }
+
+function relativeTime(d: Date) {
+  const m = Math.round((Date.now() - d.getTime()) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const days = Math.round(h / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+function formatWhen(iso: string) {
+  return new Date(iso).toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
+}
+
+const EVENT_ICON: Record<TimelineItem["_type"], React.ReactNode> = {
+  care_log: <ClipboardCheck className="w-4 h-4" />,
+  incident: <AlertTriangle className="w-4 h-4" />,
+  emergency_alert: <Siren className="w-4 h-4" />,
+};
 
 function EventList({ events }: { events: TimelineItem[] }) {
-  if (events.length === 0) {
-    return <EmptyCard text="No activity yet." />;
-  }
-
+  if (events.length === 0) return <EmptyCard text="No activity yet." />;
   return (
-    <div className="space-y-2">
+    <ol className="relative space-y-4 before:absolute before:left-4 before:top-2 before:bottom-2 before:w-px before:bg-gray-200">
       {events.map((e) => {
         const meta = EVENT_META[e._type];
-
+        const summary =
+          e._type === "care_log"
+            ? [
+                e.meals && `Meals: ${FRIENDLY.meals[e.meals.toLowerCase()] ?? e.meals}`,
+                e.fluids && `Drinking: ${FRIENDLY.fluids[e.fluids.toLowerCase()] ?? e.fluids}`,
+                e.mood && `Mood: ${FRIENDLY.mood[e.mood.toLowerCase()] ?? e.mood}`,
+                e.medication && `Medicines: ${FRIENDLY.medication[e.medication.toLowerCase()] ?? e.medication}`,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : e._type === "incident"
+              ? e.description
+              : `${e.type ?? "Emergency"} alert${e.status ? ` · ${e.status}` : ""}`;
         return (
-          <div
-            key={`${e._type}-${e.id}`}
-            className="bg-white rounded-xl border border-gray-100 p-4 flex gap-3"
-          >
-            <span
-              className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${meta.dot}`}
-            />
-
-            <div className="min-w-0 flex-1">
-              <p className={`text-sm font-semibold ${meta.color}`}>
-                {meta.label}
-              </p>
-
-              {"notes" in e && e.notes && (
-                <p className="text-sm text-gray-600 mt-0.5">{e.notes}</p>
-              )}
-
-              {"meals" in e && (
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
-                  <span>Meals: {e.meals || "—"}</span>
-                  <span>Fluids: {e.fluids || "—"}</span>
-                  <span>Mood: {e.mood || "—"}</span>
-                  <span>Medication: {e.medication || "—"}</span>
-                </div>
-              )}
-
-              {"systolic" in e &&
-                ("diastolic" in e || "heart_rate" in e || "temperature" in e) && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Vitals:{" "}
-                    {e.systolic != null && e.diastolic != null
-                      ? `BP ${e.systolic}/${e.diastolic} mmHg`
-                      : e.systolic != null
-                        ? `Systolic ${e.systolic}`
-                        : ""}
-                    {e.heart_rate != null
-                      ? ` · HR ${e.heart_rate} bpm`
-                      : ""}
-                    {e.temperature != null
-                      ? ` · Temp ${e.temperature} °F`
-                      : ""}
-                    {"pain_scale" in e && e.pain_scale != null
-                      ? ` · Pain ${e.pain_scale}/10`
-                      : ""}
-                  </p>
+          <li key={`${e._type}-${e.id}`} className="relative flex gap-3 pl-0">
+            <span className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-white border-2 ${meta.color} border-current`}>
+              {EVENT_ICON[e._type]}
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span className={`text-sm font-bold ${meta.color}`}>{meta.label}</span>
+                <span className="text-[11px] text-gray-400">{formatWhen(e.created_at)}</span>
+                {e._type === "care_log" && e.entry_source === "demo" && (
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase">demo</span>
                 )}
-
-              {"pain_note" in e && e.pain_note && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Pain note: {e.pain_note}
-                </p>
-              )}
-
-              {"entry_source" in e && e.entry_source && (
-                <p className="text-[11px] text-gray-400 mt-1 capitalize">
-                  Source: {e.entry_source}
-                </p>
-              )}
-
-              {"description" in e && e.description && (
-                <p className="text-sm text-gray-600 mt-0.5">{e.description}</p>
-              )}
-
-              {"type" in e && e.type && (
-                <p className="text-sm text-gray-600 mt-0.5">Type: {e.type}</p>
-              )}
-
-              {"status" in e && e.status && (
-                <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                  Status: {e.status}
-                </p>
-              )}
-
-              <p className="text-xs text-gray-400 mt-1">
-                {new Date(e.created_at).toLocaleString("en-GB", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  day: "2-digit",
-                  month: "short",
-                })}
               </p>
+              {summary && <p className="text-sm text-gray-600 mt-0.5">{summary}</p>}
+              {e._type === "care_log" && e.notes && <p className="text-sm text-gray-500 mt-0.5 italic">“{e.notes}”</p>}
             </div>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
 
-function DetailRow({
-  label,
-  value,
-  multiline,
-}: {
-  label: string;
-  value: string;
-  multiline?: boolean;
-}) {
+function DetailRow({ label, value, multiline }: { label: string; value: string; multiline?: boolean }) {
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-400 mb-1">{label}</p>
-
-      <p
-        className={`text-sm text-gray-900 ${
-          multiline ? "whitespace-pre-wrap" : ""
-        }`}
-      >
-        {value}
-      </p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</p>
+      <p className={`text-sm text-gray-900 ${multiline ? "whitespace-pre-wrap" : ""}`}>{value}</p>
     </div>
   );
 }

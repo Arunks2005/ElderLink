@@ -34,8 +34,10 @@ export async function POST(request: Request) {
   if (aiConfigured()) {
     try {
       const { reply } = await askModel(careLogExtractionPrompt(lang.name), [{ role: "user", content: transcript }], {
-        maxTokens: 400,
+        maxTokens: 700,
         temperature: 0,
+        json: true,
+        reasoning: "low",
       });
       const ai = sanitizeParsed(extractJson(reply));
       // AI wins; the keyword parser only fills gaps (e.g. numbers it missed).
