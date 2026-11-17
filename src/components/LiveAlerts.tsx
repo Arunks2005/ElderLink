@@ -29,6 +29,7 @@ type FallEvent = {
   status: string | null;
   triggered_at: string | null;
   acknowledged_at: string | null;
+  acknowledged_by: string | null;
   acknowledged_by_name: string | null;
   escalation_level: number | null;
   family_notified_at: string | null;
@@ -37,10 +38,12 @@ type FallEvent = {
 type Alert = FallEvent & { resident: Resident | null };
 
 const COLS =
-  "id, resident_id, device_id, status, triggered_at, acknowledged_at, acknowledged_by_name, escalation_level, family_notified_at";
+  "id, resident_id, device_id, status, triggered_at, acknowledged_at, acknowledged_by, acknowledged_by_name, escalation_level, family_notified_at";
 const OPEN = ["unresolved", "active", "acknowledged"];
 const ESCALATE_1_S = 120;
 const ESCALATE_2_S = 300;
+/** Only alerts from the last day count as "active"; older ones are stale. */
+const ACTIVE_WINDOW_MS = 24 * 3600 * 1000;
 
 const RED_FLAGS = [
   { key: "unresponsive", label: "Not responding, or not breathing normally" },
@@ -63,6 +66,8 @@ function since(iso: string | null, now: number) {
 }
 
 function mmss(s: number) {
+  if (s >= 86400) return `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`;
+  if (s >= 3600) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -102,7 +107,8 @@ export default function LiveAlerts() {
     async (id: FallEvent["id"]) => {
       const supabase = createClient();
       const { data } = await supabase.from("fall_events").select(COLS).eq("id", id).maybeSingle();
-      if (!data || !OPEN.includes(String(data.status))) {
+      const stale = data?.triggered_at ? Date.now() - new Date(data.triggered_at).getTime() > ACTIVE_WINDOW_MS : false;
+      if (!data || stale || !OPEN.includes(String(data.status))) {
         setAlerts((cur) => cur.filter((a) => String(a.id) !== String(id)));
         return;
       }
@@ -136,6 +142,7 @@ export default function LiveAlerts() {
         .from("fall_events")
         .select(COLS)
         .in("status", OPEN)
+        .gte("triggered_at", new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString())
         .order("triggered_at", { ascending: false });
       if (cancelled) return;
       if (error) console.error("Failed to load fall alerts:", error.message);
@@ -184,12 +191,16 @@ export default function LiveAlerts() {
         if (target <= level) continue;
         setAlerts((cur) => cur.map((x) => (x.id === a.id ? { ...x, escalation_level: target } : x)));
         // Conditional update so several open dashboards escalate only once.
-        void supabase
+        // (Supabase queries are lazy: they only run once awaited / then-ed.)
+        supabase
           .from("fall_events")
           .update({ escalation_level: target, escalated_at: new Date(t).toISOString() })
           .eq("id", a.id)
           .lt("escalation_level", target)
-          .in("status", ["unresolved", "active"]);
+          .in("status", ["unresolved", "active"])
+          .then(({ error }) => {
+            if (error) console.error("Fall escalation not saved:", error.message);
+          });
       }
     }, 1000);
     return () => clearInterval(id);
@@ -278,8 +289,12 @@ function FallCard({
   const [notes, setNotes] = useState("");
   const [familyMsg, setFamilyMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const acknowledged = a.status === "acknowledged";
+  // The responder sees the full checklist; everyone else a one-line card.
+  const mine = !!me.current && a.acknowledged_by === me.current.id;
+  const showSteps = mine || expanded;
   const age = since(a.triggered_at, now);
   const level = a.escalation_level ?? 0;
   const responseS = a.acknowledged_at && a.triggered_at ? since(a.triggered_at, new Date(a.acknowledged_at).getTime()) : null;
@@ -392,8 +407,16 @@ function FallCard({
           </p>
         </div>
         {acknowledged ? (
-          <span className="rounded-full bg-amber-100 border border-amber-300 px-3 py-1 text-xs font-bold text-amber-900">
-            {a.acknowledged_by_name ?? "Staff"} responding{responseS != null ? ` · reached in ${mmss(responseS)}` : ""}
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-amber-100 border border-amber-300 px-3 py-1 text-xs font-bold text-amber-900">
+              {mine ? "You are" : `${a.acknowledged_by_name ?? "Staff"} is`} responding
+              {responseS != null ? ` · reached in ${mmss(responseS)}` : ""}
+            </span>
+            {!mine && (
+              <button onClick={() => setExpanded((x) => !x)} className="text-xs font-semibold text-amber-900 underline">
+                {expanded ? "Hide steps" : "Help / take over"}
+              </button>
+            )}
           </span>
         ) : (
           <button
@@ -421,7 +444,7 @@ function FallCard({
           <Step n={2} text="At the resident: don't lift yet. Do the quick check." />
           <Step n={3} text="Tell family, record what happened, close." />
         </div>
-      ) : (
+      ) : !showSteps ? null : (
         <div className="p-4 space-y-4">
           {/* Red-flag check */}
           <div>

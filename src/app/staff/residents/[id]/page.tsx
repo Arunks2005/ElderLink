@@ -366,18 +366,18 @@ export default function ResidentDetailsPage({ params }: { params: Promise<{ id: 
                 badge={lastNight.sensor_source === "simulated" ? "Simulated" : undefined}
               >
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Stat label="Sleep" value={lastNight.sleep_hours != null ? `${Number(lastNight.sleep_hours).toFixed(1)} h` : null} />
+                  <Stat label="Sleep" value={lastNight.sleep_hours != null ? `${Number(lastNight.sleep_hours).toFixed(1)} hours` : null} />
                   <Stat label="Bathroom trips" value={lastNight.washroom_visits} />
                   <Stat label="Out of bed" value={lastNight.night_bed_exits != null ? `${lastNight.night_bed_exits}×` : null} />
                   <Stat label="Breathing" value={lastNight.night_breathing_rate != null ? `${Number(lastNight.night_breathing_rate).toFixed(0)}/min` : null} />
                 </div>
                 {nights.length > 1 && (
-                  <div className="mt-3 flex items-end gap-1 h-12" aria-label="Sleep hours, last 7 nights">
+                  <div className="mt-3 flex items-end gap-1 h-16" aria-label="Sleep hours, last 7 nights">
                     {[...nights].reverse().map((n2) => (
-                      <div key={n2.date} className="flex-1 flex flex-col items-center gap-0.5">
+                      <div key={n2.date} className="flex-1 h-full flex flex-col items-center justify-end gap-0.5">
                         <div
-                          className="w-full rounded-t bg-indigo-200"
-                          style={{ height: `${Math.max(8, Math.min(100, ((Number(n2.sleep_hours) || 0) / 10) * 100))}%` }}
+                          className="w-full rounded-t bg-indigo-300"
+                          style={{ height: `${Math.max(8, Math.min(80, ((Number(n2.sleep_hours) || 0) / 10) * 80))}%` }}
                           title={`${n2.date}: ${n2.sleep_hours ?? "—"} h`}
                         />
                         <span className="text-[9px] text-slate-400">{n2.date.slice(8)}</span>
@@ -564,7 +564,7 @@ function Stat({ icon, label, value }: { icon?: React.ReactNode; label: string; v
         {icon}
         {label}
       </p>
-      <p className="text-sm font-bold text-slate-900 capitalize mt-0.5">{value === null || value === undefined || value === "" ? "—" : String(value)}</p>
+      <p className="text-sm font-bold text-slate-900 mt-0.5 first-letter:uppercase">{value === null || value === undefined || value === "" ? "—" : String(value)}</p>
     </div>
   );
 }
